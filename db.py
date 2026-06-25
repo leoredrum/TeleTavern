@@ -70,6 +70,21 @@ class SessionStore:
             cur = conn.execute("DELETE FROM sessions WHERE thread_id = ?", (thread_id,))
             return cur.rowcount
 
+    def replace_last_assistant(self, thread_id: str, new_content: str) -> int:
+        """Replace the most recent assistant message for this thread.
+
+        Returns 1 if a row was updated, 0 if there was no assistant turn to replace.
+        Used by Story Engine rewrite.
+        """
+        with self._lock, self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE sessions SET content = ? "
+                "WHERE msg_id = (SELECT msg_id FROM sessions WHERE thread_id = ? AND role = ? "
+                "ORDER BY msg_id DESC LIMIT 1)",
+                (new_content, thread_id, ROLE_ASSISTANT),
+            )
+            return cur.rowcount
+
     def count(self, thread_id: str) -> int:
         with self._connect() as conn:
             row = conn.execute(

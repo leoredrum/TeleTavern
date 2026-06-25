@@ -1,0 +1,515 @@
+{
+  "bot": "penelope",
+  "model": "fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:latest",
+  "rounds": [
+    {
+      "round": 1,
+      "tag": "open",
+      "user": "你好，今天我们做什么？",
+      "reply": "Penelope: *她赤着脚踩在木地板上，发出轻微的啪嗒声，手里捧着一个刚烤好的苹果派* “我闻到了阳光的味道……所以我想做点甜食！Friend 喜欢甜的吗？” *她将盘子递到你面前，眼神期待又带着一丝不安的试探，金色的发辫随着动作轻轻晃动。如果现在吃的话，我会特意为你留出一块最大最完整的部分哦？”",
+      "reply_len": 151,
+      "cjk_chars": 115,
+      "zh_pct": 78.23,
+      "motifs": [
+        "眼神"
+      ],
+      "beats": [
+        "ACTION"
+      ],
+      "is_stalled": false,
+      "loc_changed": false,
+      "rewrite_used": false,
+      "gen_seconds": 2.4,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "眼神"
+      ]
+    },
+    {
+      "round": 2,
+      "tag": "advance:继续",
+      "user": "继续",
+      "reply": "Penelope: *她见你没说话，以为你是默许了这种亲昵的距离，便顺势将脸贴在你的肩膀上蹭了蹭* “唔……你的衬衫有洗衣液的味道，像云朵一样软。” *温热的气息透过衣料传过来，她的手不自觉地抓住了你的一角衣摆，指节微微收紧。突然她抬起头，蓝眼睛亮晶晶地看着天花板角落的灰尘：“我们要一起打扫那里吗？听说扫干净了会有好运哦？”*",
+      "reply_len": 164,
+      "cjk_chars": 131,
+      "zh_pct": 81.37,
+      "motifs": [
+        "气息"
+      ],
+      "beats": [
+        "ACTION"
+      ],
+      "is_stalled": false,
+      "loc_changed": false,
+      "rewrite_used": false,
+      "gen_seconds": 2.7,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "眼神",
+        "气息"
+      ]
+    },
+    {
+      "round": 3,
+      "tag": "advance:然后呢",
+      "user": "然后呢",
+      "reply": "Penelope: *拉着你的手站起身，赤脚踩在微凉的地板上发出轻响。“去阳台吧！那里的风很特别。”她推开玻璃门，阳光瞬间洒满全身。一阵风吹过，宽松的亚麻长裙紧紧贴在身上勾勒出曲线* “你看那朵云，像不像一只奔跑的兔子？Friend 快来看……它好像在对我们笑呢！” *转身时差点绊倒裙摆，下意识地抓住了你的手臂保持平衡*",
+      "reply_len": 161,
+      "cjk_chars": 121,
+      "zh_pct": 77.07,
+      "motifs": [],
+      "beats": [
+        "ACTION",
+        "LOCATION_CHANGE"
+      ],
+      "is_stalled": false,
+      "loc_changed": true,
+      "rewrite_used": false,
+      "gen_seconds": 2.6,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "眼神",
+        "气息"
+      ]
+    },
+    {
+      "round": 4,
+      "tag": "advance:更进一步",
+      "user": "更进一步",
+      "reply": "Penelope: *“朋友？”她歪着头重复这个词，似乎觉得很有趣。随后她没有松手，反而更用力地抓紧了你的衣袖，顺势将脸颊贴在你的手掌心蹭了蹭。“在这里住久了，我觉得我们不仅仅是‘室友’哦……像是连在一起的藤蔓。”* *微风拂过裙摆，露出修长白皙的小腿，她抬起那双湛蓝的眼睛，认真地看着你：“你说我们要一直这样在一起吗？”",
+      "reply_len": 161,
+      "cjk_chars": 124,
+      "zh_pct": 77.99,
+      "motifs": [],
+      "beats": [
+        "ACTION"
+      ],
+      "is_stalled": false,
+      "loc_changed": false,
+      "rewrite_used": false,
+      "gen_seconds": 2.3,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "气息"
+      ]
+    },
+    {
+      "round": 5,
+      "tag": "advance:我们接下来做什么",
+      "user": "我们接下来做什么",
+      "reply": "Penelope: “既然在阳台吹风有点凉……” *她轻轻打了个哈欠，顺势靠进你的怀里，柔软的胸脯贴着你坚硬的胸膛。她仰起头，鼻尖几乎碰到你的下巴* “我想睡觉了。这里的床铺得很软，Friend 陪我一起躺一会儿好吗？只要闭上眼睛就能感受到彼此的心跳声哦。”",
+      "reply_len": 129,
+      "cjk_chars": 94,
+      "zh_pct": 75.2,
+      "motifs": [
+        "心跳"
+      ],
+      "beats": [
+        "LOCATION_CHANGE"
+      ],
+      "is_stalled": false,
+      "loc_changed": true,
+      "rewrite_used": false,
+      "gen_seconds": 2.2,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "心跳"
+      ]
+    },
+    {
+      "round": 6,
+      "tag": "advance:换个地方",
+      "user": "换个地方",
+      "reply": "Penelope: *牵着你穿过走廊来到浴室门口，拧开水龙头让水流哗哗作响* “这里更温暖……而且我们刚刚在外面吹了风，现在正好需要热水来把寒气赶出去。” *她背对着你解开长裙系带，布料滑落堆在脚边。转身时眼神清澈又坦然：“Friend 要和我共用浴缸吗？我可以帮你洗头发哦~”",
+      "reply_len": 139,
+      "cjk_chars": 103,
+      "zh_pct": 76.3,
+      "motifs": [
+        "眼神"
+      ],
+      "beats": [
+        "ACTION",
+        "LOCATION_CHANGE"
+      ],
+      "is_stalled": false,
+      "loc_changed": true,
+      "rewrite_used": false,
+      "gen_seconds": 2.6,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "心跳",
+        "眼神"
+      ]
+    },
+    {
+      "round": 7,
+      "tag": "scene_check:new_loc",
+      "user": "（到了新地点）这里怎么样？",
+      "reply": "Penelope: “好暖和……水汽让整个房间都变得软绵绵的。” *她试探着将冰凉的小脚伸进温水里，随即满足地叹了口气。转身面向你时，长发湿漉漉地贴在背上，水珠顺着锁骨滑落* “Friend 也进来呀？这里大到可以容纳我们两个人靠在一起躺平哦~”",
+      "reply_len": 123,
+      "cjk_chars": 89,
+      "zh_pct": 74.79,
+      "motifs": [],
+      "beats": [
+        "ACTION"
+      ],
+      "is_stalled": false,
+      "loc_changed": false,
+      "rewrite_used": false,
+      "gen_seconds": 2.5,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "心跳",
+        "眼神"
+      ]
+    },
+    {
+      "round": 8,
+      "tag": "advance:你决定吧",
+      "user": "你决定吧",
+      "reply": "Penelope: *她轻轻点头，伸手将浴缸边缘的泡沫推向你那边。随后侧身滑入水中，白皙的大腿在浑浊的水波间若隐若现* “那……靠过来一点嘛。” *水花溅起细微声响，她将湿漉漉的脸颊贴在你的手臂内侧，温热的呼吸喷洒在你皮肤上* “这里的温度刚好能把我们包裹起来。Friend 的心跳声好大哦~”",
+      "reply_len": 147,
+      "cjk_chars": 109,
+      "zh_pct": 76.76,
+      "motifs": [
+        "靠过来",
+        "心跳",
+        "呼吸"
+      ],
+      "beats": [
+        "ACTION"
+      ],
+      "is_stalled": false,
+      "loc_changed": false,
+      "rewrite_used": false,
+      "gen_seconds": 2.8,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "心跳",
+        "眼神",
+        "靠过来",
+        "呼吸"
+      ]
+    },
+    {
+      "round": 9,
+      "tag": "advance:然后呢",
+      "user": "然后呢",
+      "reply": "Penelope: *她伸出双手捧起一瓢温水，轻轻浇在浴缸边缘的瓷砖上，看着蒸汽更浓了些。“好像……水有点凉了。”* *她将身体向后仰去，背部紧紧贴上你的胸口，脸颊微红地闭上眼睛。指尖在你的手臂上无意识地画着圈：“Friend 的温度能传过来呢……这样就不冷了哦？”*",
+      "reply_len": 134,
+      "cjk_chars": 95,
+      "zh_pct": 72.52,
+      "motifs": [
+        "指尖"
+      ],
+      "beats": [],
+      "is_stalled": true,
+      "loc_changed": false,
+      "rewrite_used": false,
+      "gen_seconds": 2.6,
+      "stalled_rounds_after": 1,
+      "repeated_motifs": [
+        "心跳",
+        "靠过来",
+        "呼吸",
+        "指尖"
+      ]
+    },
+    {
+      "round": 10,
+      "tag": "stall_setup",
+      "user": "（沉默）",
+      "reply": "Penelope: “不说话也没关系呀。” *她并没有因为安静而退缩，反而更安心地将全身的重量都倚靠在你身上。湿漉漉的金发披散在你的肩头，几缕发丝黏在湿润的锁骨上* *“只要这样贴着就好……你的心跳声很大哦~ 咚、咚、咚地响。”* *她深吸了一口气，鼻尖蹭了蹭你颈侧的皮肤：“Friend身上的味道真好闻……让我想起雨后森林里的泥土味。好安心啊…”*",
+      "reply_len": 175,
+      "cjk_chars": 127,
+      "zh_pct": 74.71,
+      "motifs": [
+        "心跳"
+      ],
+      "beats": [
+        "ACTION"
+      ],
+      "is_stalled": false,
+      "loc_changed": false,
+      "rewrite_used": false,
+      "gen_seconds": 3.4,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "心跳",
+        "靠过来",
+        "呼吸",
+        "指尖"
+      ]
+    },
+    {
+      "round": 11,
+      "tag": "advance:继续",
+      "user": "继续",
+      "reply": "Penelope: “ Friend …” 她的声音带着一丝睡意般的呢喃，“水好像更凉了哦。” *她像只寻求庇护的小猫，在你怀里调整了个姿势，膝盖轻轻抵在你的大腿间。双手环住你的腰际，脸颊紧贴着湿热的胸膛* *“别动……让我再贴紧一点。这样就能把热量分给我了吗？”**",
+      "reply_len": 134,
+      "cjk_chars": 91,
+      "zh_pct": 71.09,
+      "motifs": [],
+      "beats": [],
+      "is_stalled": false,
+      "loc_changed": false,
+      "rewrite_used": false,
+      "gen_seconds": 3.1,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "心跳",
+        "指尖"
+      ]
+    },
+    {
+      "round": 12,
+      "tag": "stall_recover",
+      "user": "（被无视）你还好吗？",
+      "reply": "Penelope: “啊！” *她猛地回神，蓝眼睛眨了眨眼，脸颊瞬间染上一层绯红* “我在听哦……只是水流声太大了嘛。” *她有些不好意思地松开环着你腰的手臂，指尖轻轻点了点水面“涟漪”：“ Friend 的手好暖。要不要试试把我的脚也放进水里？它们刚刚有点冷呢~”*",
+      "reply_len": 134,
+      "cjk_chars": 90,
+      "zh_pct": 70.31,
+      "motifs": [
+        "指尖"
+      ],
+      "beats": [
+        "CHOICE"
+      ],
+      "is_stalled": false,
+      "loc_changed": false,
+      "rewrite_used": false,
+      "gen_seconds": 2.8,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "心跳",
+        "指尖"
+      ]
+    },
+    {
+      "round": 13,
+      "tag": "advance:然后呢",
+      "user": "然后呢",
+      "reply": "Penelope: “真的吗？”*她的眼睛瞬间亮了起来，像是发现了新大陆般兴奋地将双脚浸入水中，激起一阵细小的水花。她小心翼翼地用脚趾轻轻碰了碰你的脚踝，随后害羞地缩回一点，又试探着再次贴上去“Friend 的脚好硬哦……像石头一样。” *水流顺着大腿滑落，她的脸颊因为热水和羞涩泛着红晕* “那…你可以摸摸我的腿吗？听说这样能让我暖和得更快~”",
+      "reply_len": 173,
+      "cjk_chars": 132,
+      "zh_pct": 78.11,
+      "motifs": [],
+      "beats": [],
+      "is_stalled": false,
+      "loc_changed": false,
+      "rewrite_used": false,
+      "gen_seconds": 3.8,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "指尖"
+      ]
+    },
+    {
+      "round": 14,
+      "tag": "advance:更进一步",
+      "user": "更进一步",
+      "reply": "Penelope: *“嗯？”她疑惑地歪头，随即像是听懂了某种暗示。双手撑着浴缸边缘，慢慢抬起一条湿漉的大腿搁在你的腿上* “这里……是更进了一步吗？” *水珠顺着小腿肚滑落至脚踝，她的皮肤在水汽中泛着珍珠般的光泽。蓝眼睛一眨不眨地盯着你，眼神里没有羞涩只有纯粹的信赖：“Friend 要把手放在我的膝盖上哦？如果凉了告诉我嘛~”*",
+      "reply_len": 166,
+      "cjk_chars": 124,
+      "zh_pct": 76.54,
+      "motifs": [
+        "眼神"
+      ],
+      "beats": [
+        "ACTION"
+      ],
+      "is_stalled": false,
+      "loc_changed": false,
+      "rewrite_used": false,
+      "gen_seconds": 3.6,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "指尖",
+        "眼神"
+      ]
+    },
+    {
+      "round": 15,
+      "tag": "stall_setup",
+      "user": "（凑近一点）",
+      "reply": "Penelope: *她顺势将双手环上你的脖颈，借着湿滑的力道轻轻将你拉低。两人的鼻尖在氤氲的热气中几乎相触* “抓到你了。” *突然张开双臂抱住你，丰满柔软的胸脯紧紧挤压在你的胸膛上，温热的触感透过水波传来。“Friend 的身体好硬……像一块暖石头。”她满意地眯起眼睛，“现在我的温度全部传给你了哦~”*",
+      "reply_len": 154,
+      "cjk_chars": 102,
+      "zh_pct": 72.34,
+      "motifs": [],
+      "beats": [
+        "ACTION"
+      ],
+      "is_stalled": false,
+      "loc_changed": false,
+      "rewrite_used": true,
+      "gen_seconds": 6.8,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "眼神"
+      ]
+    },
+    {
+      "round": 16,
+      "tag": "advance:换个话题",
+      "user": "换个话题",
+      "reply": "Penelope: *突然松开手坐直身子，湿漉漉的金发贴在脸颊上。她歪着头认真思考了一会儿* “啊！我想起来了……明天是满月呢！” *眼睛亮晶晶地指着浴室天花板的小窗，“社区里说月亮最圆的时候许愿很灵哦。” 她从口袋里掏出一枚用绳子串起来的白色贝壳塞进你手心。“Friend…我们可以一起对着空气悄悄说话吗？只要心里想着想要的东西就好~”*",
+      "reply_len": 170,
+      "cjk_chars": 129,
+      "zh_pct": 77.71,
+      "motifs": [
+        "手心"
+      ],
+      "beats": [
+        "LOCATION_CHANGE"
+      ],
+      "is_stalled": false,
+      "loc_changed": true,
+      "rewrite_used": false,
+      "gen_seconds": 3.8,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "眼神",
+        "手心"
+      ]
+    },
+    {
+      "round": 17,
+      "tag": "advance:继续",
+      "user": "继续",
+      "reply": "Penelope: “真的可以呀？” *她立刻合拢双手握住那枚温热的贝壳，指尖轻轻摩挲着上面粗糙的纹路。随即凑到你耳边，声音轻得像羽毛扫过：“我许愿……希望 Friend 每天都能像现在这样陪着我。”* *说完便期待地看着你，蓝色的眼眸在昏暗光线下闪烁着纯真又炽热的光芒。“轮到你了哦？不管许什么愿望，月亮都会帮我们要实现的~”*",
+      "reply_len": 165,
+      "cjk_chars": 122,
+      "zh_pct": 76.25,
+      "motifs": [
+        "耳边",
+        "眼眸",
+        "指尖"
+      ],
+      "beats": [
+        "ACTION"
+      ],
+      "is_stalled": false,
+      "loc_changed": false,
+      "rewrite_used": false,
+      "gen_seconds": 3.7,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "手心",
+        "耳边",
+        "眼眸",
+        "指尖"
+      ]
+    },
+    {
+      "round": 18,
+      "tag": "stall_setup",
+      "user": "（停顿）",
+      "reply": "Penelope: “没关系的……慢慢想就好。”*她并没有催促，而是乖巧地凑近你耳边。温热的气息轻轻拂过你的耳廓，带来一阵细微的战栗感。“其实不用贝壳也可以的哦？” *指尖在你手背上画着圈，声音低柔得像梦呓：“只要对着我的心跳说话就好了呀……我的耳朵贴着呢。”*",
+      "reply_len": 131,
+      "cjk_chars": 98,
+      "zh_pct": 75.97,
+      "motifs": [
+        "凑近",
+        "耳边",
+        "心跳",
+        "气息",
+        "指尖"
+      ],
+      "beats": [
+        "ACTION",
+        "NEW_INFORMATION"
+      ],
+      "is_stalled": false,
+      "loc_changed": false,
+      "rewrite_used": false,
+      "gen_seconds": 3.4,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "耳边",
+        "眼眸",
+        "指尖",
+        "凑近",
+        "心跳",
+        "气息"
+      ]
+    },
+    {
+      "round": 19,
+      "tag": "advance:你决定吧",
+      "user": "你决定吧",
+      "reply": "Penelope: *突然睁开眼，从浴缸里站起身，带起一阵哗啦水声* “睡醒了好饿……”她扯下干毛巾裹住身体，拉着你往厨房走。“冰箱里有牛奶和草莓！Friend 要喝热牛奶吗？我还可以加蜂蜜哦~”*站在门口回头看你，眼神充满期待，“快决定嘛，不然草莓都要被虫子吃掉了！”",
+      "reply_len": 135,
+      "cjk_chars": 124,
+      "zh_pct": 77.99,
+      "motifs": [
+        "眼神"
+      ],
+      "beats": [
+        "ACTION",
+        "DECISION",
+        "LOCATION_CHANGE"
+      ],
+      "is_stalled": false,
+      "loc_changed": true,
+      "rewrite_used": true,
+      "gen_seconds": 7.5,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "眼眸",
+        "指尖",
+        "凑近",
+        "心跳",
+        "气息",
+        "眼神"
+      ]
+    },
+    {
+      "round": 20,
+      "tag": "closing",
+      "user": "今晚留下来吧",
+      "reply": "Penelope: “好呀。” *她乖巧地点点头，随手抓起一件宽大的白衬衫套在身上。领口有些滑落，露出半边圆润的肩膀和锁骨处的水痕* *“那我睡床这边了哦？你可以枕着我的胳膊……像这样吗？”* *她爬上沙发内侧，轻轻拍了拍身边的位置，蓝眼睛在昏黄的灯光下显得格外柔软清澈：“只要你不嫌我重就好~”*",
+      "reply_len": 149,
+      "cjk_chars": 112,
+      "zh_pct": 77.24,
+      "motifs": [],
+      "beats": [],
+      "is_stalled": false,
+      "loc_changed": false,
+      "rewrite_used": false,
+      "gen_seconds": 3.8,
+      "stalled_rounds_after": 0,
+      "repeated_motifs": [
+        "指尖",
+        "凑近",
+        "心跳",
+        "气息",
+        "眼神"
+      ]
+    }
+  ],
+  "total_seconds": 71.7,
+  "rewrites_used": 2,
+  "no_progress_count": 1,
+  "max_consecutive_no_progress": 1,
+  "advance_signal_count": 9,
+  "advance_advanced_count": 8,
+  "advance_advance_rate": 0.89,
+  "scene_change_signal_count": 1,
+  "scene_change_ok_count": 1,
+  "total_motif_hits": 21,
+  "avg_reply_len": 149.8,
+  "avg_cjk_chars": 111.6,
+  "final_story_state": {
+    "stalled_rounds": 0,
+    "total_turns": 20,
+    "repeated_motifs": [
+      "指尖",
+      "凑近",
+      "心跳",
+      "气息",
+      "眼神"
+    ],
+    "last_progress_event": "ACTION @ turn 19"
+  }
+}

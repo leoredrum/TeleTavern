@@ -18,8 +18,9 @@ Architecture
     [8]  Examples              — Example dialogues
     [9]  Summary               — Memory / conversation summary   [Phase 3]
     [10] Chat History          — Actual messages
-    [11] Depth Injections      — In-chat depth prompts (interleaved)
-    [12] Post-History Instruc.  — PHI (last, highest priority)
+[11] Depth Injections      — In-chat depth prompts (interleaved)
+     [12] Story Hint            — Story Progress Engine nudge (anti-stall)
+     [13] Post-History Instruc.  — PHI (last, highest priority)
 
 Phase 1 scope
 ============
@@ -136,6 +137,8 @@ class PromptPipeline:
         reply_language: Language override (None = model decides)
         lorebook: Lorebook engine instance (Phase 2, None for Phase 1)
         memory_manager: MemoryManager instance (Phase 3, None for Phase 1)
+        story_state: per-thread StoryState (Phase 1 Story Engine)
+        story_engine: optional StoryEngine instance (calls .hint_for(state, user_msg))
     """
 
     card: "ExtendedCharacterCard"
@@ -146,6 +149,8 @@ class PromptPipeline:
     reply_language: str | None = None
     lorebook: Any = None               # Phase 2
     memory_manager: Any = None         # Phase 3
+    story_state: Any = None            # Phase 1 Story Engine — StoryState or None
+    story_engine: Any = None           # Phase 1 Story Engine — StoryEngine or None
 
     def build_items(
         self,
@@ -202,7 +207,12 @@ class PromptPipeline:
         # ── 11: Depth Injections ────────────────────────────────────────────
         items.extend(self._build_depth_injections(ctx))
 
-        # ── 12: Post-History Instructions ───────────────────────────────────
+        # ── 12: Story Hint (Phase 1 Story Engine) ─────────────────────────
+        story_item = self._build_story_hint(ctx, user_message)
+        if story_item:
+            items.append(story_item)
+
+        # ── 13: Post-History Instructions ───────────────────────────────────
         phi_item = self._build_post_history(ctx)
         if phi_item:
             items.append(phi_item)
@@ -497,6 +507,36 @@ class PromptPipeline:
     def _build_post_history(self, ctx: PipelineContext) -> PromptItem | None:
         """Post-History Instructions from the character card."""
         return self.card.get_post_history_item(ctx.char_label, ctx.user_label)
+
+    def _build_story_hint(self, ctx: PipelineContext, user_message: str) -> PromptItem | None:
+        """Story Progress Engine hint (Phase 1 anti-stall).
+
+        Position: just before PHI, so it's the highest priority non-PHI instruction.
+        Disabled when no story_state / story_engine is wired up.
+        """
+        if self.story_engine is None or self.story_state is None:
+            return None
+        try:
+            hint = self.story_engine.hint_for(self.story_state, user_message)
+        except Exception as e:  # noqa: BLE001
+            log.warning("story engine hint failed: %s", e)
+            return None
+        if not hint:
+            return None
+        return PromptItem(
+            id="story_hint",
+            role="system",
+            content=hint,
+            enabled=True,
+            position=PromptPosition.STORY_HINT,
+            priority=0,
+            depth=0,
+            source="story_engine",
+            metadata={
+                "stalled_rounds": getattr(self.story_state, "stalled_rounds", 0),
+                "user_intent": getattr(self.story_state, "user_intent", ""),
+            },
+        )
 
     def _log_items(self, items: list[PromptItem]) -> None:
         for item in sorted(items, key=lambda i: (i.position.value, i.priority)):

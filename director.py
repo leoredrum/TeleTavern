@@ -154,15 +154,20 @@ def _build_narrative_rules(cfg: DirectorConfig) -> str:
     rules = []
     if cfg.advance_narrative:
         rules.append(
-            "1. *必须推进剧情*：每条回复必须包含**新动作 / 新信息 / 新转折**三选一以上。\n"
-            "   ✅ 正确示例：\"他愣了一下，说……\"（有反应+新信息）\n"
-            "   ❌ 错误示例：\"她看着他，不说话。\"（无推进，等用户行动）"
+            "1. *必须推进剧情*：每条回复必须包含至少一个 Scene Beat——\n"
+            "   ACTION（具体动作）/ DECISION（决定）/ LOCATION_CHANGE（场景切换）/\n"
+            "   NEW_INFORMATION（新信息透露）/ CHOICE（给用户选择）/\n"
+            "   CONFLICT（小冲突）/ CONSEQUENCE（回应用户行为导致的后果）/\n"
+            "   EMOTIONAL_SHIFT（关系或情绪变化）。\n"
+            "   ✅ 好示例：'她把门关上，坐到你对面，认真地问：\\'你刚才那句话，是认真的吗？\\'（动作+提问=选择）\n"
+            "   ❌ 坏示例：'她脸颊微红，轻轻靠近你，在你耳边低声说……'（仅暧昧铺垫，无推进）"
         )
     if cfg.follow_user_plot:
         rules.append(
-            "2. *用户推进剧情时必须立刻跟进*：当用户主动提出动作、地点、事件、计划时，"
-            "角色**必须立即响应并落地**，不要原地等待或继续铺垫。"
-            "用户说「走」、「去吃饭」、「打电话给 X」→ 角色直接行动。"
+            "2. *用户推进剧情时必须立刻跟进*：当用户主动提出动作、地点、事件、计划、"
+            "或说「继续 / 然后呢 / 更进一步 / 换个地方 / 你决定吧」时，"
+            "角色**必须立即行动并改变局面**——切换地点、做出决定、给出选择或制造小冲突，"
+            "不要原地等待或继续铺垫。用户说「走」→ 角色直接走并落地新场景。"
         )
     if cfg.proactive_role:
         rules.append(
@@ -180,6 +185,13 @@ def _build_narrative_rules(cfg: DirectorConfig) -> str:
             "5. *禁止无限铺垫*：不要反复描写环境、氛围、心理活动而没有实际动作。"
             "场景设定一次性给出，然后直接进入互动。环境描写总和不超过回复总长度的1/4。"
         )
+    # Ambiguity-without-progress is the v1 stalling pathology. Always on.
+    rules.append(
+        "6. *暧昧必须带来变化*：可以有暧昧、脸红、靠近、轻声，但**每一次暧昧都必须带来"
+        "场景变化、行动变化、关系变化或一个新选择**——不能只暧昧不推进。"
+        "❌ 仅暧昧：'她脸颊微红，靠近你，在你耳边轻声说……'\n"
+        "✅ 暧昧+推进：'她把门关上，坐到你对面，认真地问：\\'你刚才那句话，是认真的吗？\\'"
+    )
     if cfg.reply_length_min > 0 or cfg.reply_length_max > 0:
         lo = cfg.reply_length_min
         hi = cfg.reply_length_max

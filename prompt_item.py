@@ -38,7 +38,8 @@ class PromptPosition(IntEnum):
     SUMMARY = 9                # Memory / conversation summary
     CHAT_HISTORY = 10         # Actual chat messages
     DEPTH_INJECTIONS = 11      # In-chat depth injections (placeholder marker)
-    POST_HISTORY = 12          # Post-history instructions (last, highest priority)
+    STORY_HINT = 12           # Story Progress Engine hint (anti-stall nudge)
+    POST_HISTORY = 13          # Post-history instructions (last, highest priority)
 
 
 @dataclass

@@ -44,6 +44,7 @@ from director import DirectorConfig
 from ollama_client import OllamaChatError, OllamaClient
 from pipeline import PipelineContext, Persona, PromptPipeline
 import pipeline as pipeline_module
+from story_engine import StoryEngine, StoryState
 
 logging.basicConfig(
     level=logging.DEBUG if os.environ.get("DEBUG_PROMPT") else logging.INFO,
@@ -67,12 +68,19 @@ class AppState:
     generating: dict[int, asyncio.Event] = None  # type: ignore[assignment]
     # Per-chat lock to serialize generations in a chat
     locks: dict[int, asyncio.Lock] = None  # type: ignore[assignment]
+    # Story Progress Engine — per-thread state
+    story_engine: StoryEngine = None  # type: ignore[assignment]
+    story_state: dict[str, StoryState] = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
         if self.generating is None:
             self.generating = {}
         if self.locks is None:
             self.locks = {}
+        if self.story_engine is None:
+            self.story_engine = StoryEngine()
+        if self.story_state is None:
+            self.story_state = {}
 
 
 def thread_id_for(update: Update) -> str:
@@ -102,14 +110,15 @@ HELP_TEXT = (
     "🤖 *Telegram 酒馆 — Phase 1*\n\n"
     "角色：`{char}`\n"
     "模型：`{model}`\n"
-    "引擎：PromptPipeline\n\n"
+    "引擎：PromptPipeline + Story Engine\n\n"
     "命令：\n"
-    "  /start   — 重新开始对话（清空历史，播放 first message）\n"
-    "  /reset   — 只清空对话历史，保留角色\n"
+    "  /start    — 重新开始对话（清空历史，播放 first message）\n"
+    "  /reset    — 只清空对话历史，保留角色\n"
     "  /character — 查看当前角色卡信息\n"
-    "  /model   — 查看当前模型\n"
-    "  /debug   — 显示当前 Prompt 结构（Phase 1 新增）\n"
-    "  /help    — 显示本帮助\n\n"
+    "  /model    — 查看当前模型\n"
+    "  /story    — 查看 Story Progress Engine 状态（剧情推进、绕圈计数等）\n"
+    "  /debug    — 显示当前 Prompt 结构（Phase 1 新增）\n"
+    "  /help     — 显示本帮助\n\n"
     "私聊我直接发消息就行。\n"
     "在群里请 *回复* 我的消息（@mention 也可）以触发对话。"
 ).format(char=config.char_label, model=config.ollama_model)
@@ -176,6 +185,24 @@ async def cmd_model(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     state: AppState = ctx.bot_data["state"]
     await update.effective_message.reply_text(
         f"Model: `{state.client.model}`\nEndpoint: `{state.client.base_url}`",
+        parse_mode=ParseMode.MARKDOWN,
+    )
+
+
+async def cmd_story(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show current Story Progress Engine state (Phase 1)."""
+    state: AppState = ctx.bot_data["state"]
+    thread = thread_id_for(update)
+    ss = state.story_state.get(thread)
+    if ss is None:
+        await update.effective_message.reply_text(
+            "📖 *Story State*\n\n_(还没有数据，发一条消息后会自动初始化)_",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        return
+    body = state.story_engine.debug(ss)
+    await update.effective_message.reply_text(
+        f"📖 *Story Progress Engine*\n```\n{body}\n```",
         parse_mode=ParseMode.MARKDOWN,
     )
 
@@ -278,6 +305,10 @@ async def _generate_reply(
     # Persist user turn
     state.store.append(thread, ROLE_USER, user_text)
 
+    # Wire per-thread story state into the pipeline for this turn
+    ss = state.story_state.setdefault(thread, StoryState())
+    state.pipeline.story_state = ss
+
     # Build messages via PromptPipeline (Phase 1) — or naive path for AB test
     history = state.store.history(thread, config.history_limit_messages)
     if pipeline_module.PHASE1_ENABLED:
@@ -332,6 +363,75 @@ async def _generate_reply(
     # Persist assistant turn
     state.store.append(thread, ROLE_ASSISTANT, accumulated)
 
+    # ── Story Engine: post-gen check + (max 1) rewrite ─────────────────
+    if state.story_engine.is_stalled(accumulated):
+        log.info("STORY_ENGINE: stall detected for thread=%s, attempting rewrite", thread)
+        rewritten = await _maybe_rewrite(
+            state, thread, user_text, accumulated, cancel_event
+        )
+        if rewritten and rewritten != accumulated:
+            try:
+                await placeholder.edit_text(
+                    _render_for_telegram(rewritten) or rewritten,
+                    parse_mode=ParseMode.MARKDOWN,
+                )
+            except Exception:
+                await placeholder.edit_text(_render_for_telegram(rewritten) or rewritten)
+            try:
+                state.store.replace_last_assistant(thread, rewritten)
+            except Exception:
+                state.store.append(thread, ROLE_ASSISTANT, f"[rewrite] {rewritten}")
+            accumulated = rewritten
+            log.info("STORY_ENGINE: rewrite succeeded (%d chars)", len(rewritten))
+        else:
+            log.info("STORY_ENGINE: rewrite failed or no improvement, keeping original")
+
+    # Update story state for next turn
+    state.story_engine.observe(ss, user_text, accumulated)
+
+
+async def _maybe_rewrite(
+    state: AppState,
+    thread: str,
+    user_text: str,
+    original: str,
+    cancel_event: asyncio.Event,
+) -> str | None:
+    """Rewrite a stalled reply using the ollama client with a stronger nudge.
+
+    Returns the rewritten text, or None on any failure. Max 1 rewrite per user spec.
+    """
+    ss = state.story_state.get(thread)
+    if ss is None:
+        return None
+    rewrite_hint = (
+        "你之前的回复只写了暧昧铺垫，没有推动剧情。请基于以下原回复重写，"
+        "要求：1) 至少一个具体 Scene Beat（动作/决定/新信息/选择/场景切换/小冲突/后果/情绪转折）；"
+        "2) 中文 60–180 字；3) 不要重复脸部特写/靠近/耳边/轻声；"
+        "4) 给用户一个新的明确互动点。\n\n"
+        f"原回复：\n{original}\n\n"
+        f"用户上一条消息：{user_text}\n\n"
+        "只输出重写后的新回复，不要解释。"
+    )
+    history = state.store.history(thread, config.history_limit_messages)
+    state.pipeline.story_state = ss
+    messages = state.pipeline.assemble(history, user_text)
+    messages.append({"role": "user", "content": rewrite_hint})
+
+    try:
+        chunks: list[str] = []
+        async for piece in state.client.stream_chat(messages, cancel_event=cancel_event):
+            chunks.append(piece)
+        out = "".join(chunks).strip()
+        if not out or "Traceback" in out or len(out) < 10:
+            return None
+        if state.story_engine.is_stalled(out):
+            return None
+        return out
+    except Exception as e:  # noqa: BLE001
+        log.debug("rewrite error: %s", e)
+        return None
+
 
 def _render_for_telegram(text: str) -> str:
     """Trim and convert to a telegram-friendly form.
@@ -378,9 +478,14 @@ def build_state() -> AppState:
         advance_narrative=True,
         proactive_role=True,
         avoid_purple_prose=True,
-        reply_length_min=80,
-        reply_length_max=280,
+        # Story Engine requires tighter length: every reply must have a beat,
+        # so we cap at 180 zh chars (60–180 range per design).
+        reply_length_min=60,
+        reply_length_max=180,
     )
+
+    # Story Progress Engine (Phase 1) — anti-stall nudge
+    story_engine = StoryEngine()
 
     # PromptPipeline — modular SillyTavern-style assembly
     pipeline = PromptPipeline(
@@ -392,6 +497,8 @@ def build_state() -> AppState:
         reply_language=config.reply_language or None,
         lorebook=None,
         memory_manager=None,
+        story_state=None,        # set per-thread in _generate_reply
+        story_engine=story_engine,
     )
 
     client = OllamaClient(
@@ -405,6 +512,8 @@ def build_state() -> AppState:
         pipeline=pipeline,
         client=client,
         store=store,
+        story_engine=story_engine,
+        story_state={},
     )
 
 
@@ -424,6 +533,7 @@ def main() -> None:
     app.add_handler(CommandHandler("reset", cmd_reset))
     app.add_handler(CommandHandler("character", cmd_character))
     app.add_handler(CommandHandler("model", cmd_model))
+    app.add_handler(CommandHandler("story", cmd_story))
     app.add_handler(CommandHandler("debug", cmd_debug))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CallbackQueryHandler(on_cancel, pattern="^cancel$"))

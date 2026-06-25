@@ -1,3 +1,10 @@
+# --- Bot instances (runtime, not source) ---
+# README says instances live at <bot-name>/ — they hold venv/data/.env/log,
+# which are deployment artifacts. Source of truth is the monorepo root.
+/aqua/
+/june/
+/penelope/
+
 # --- Secrets & runtime config ---
 .env
 .env.*

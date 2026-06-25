@@ -27,7 +27,6 @@ REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_DIR"
 
 BOTS=(penelope june aqua)
-TOTAL=0
 FAIL=0
 declare -a FAILURES=()
 
@@ -45,7 +44,6 @@ check_bot() {
   local env="$base/.env"
 
   echo "=== $bot ==="
-  TOTAL=$((TOTAL+1))
 
   # 1. .env exists
   if [[ -f "$env" ]]; then ok "env file present"; else fail "env file present ($env missing)"; return; fi
@@ -135,7 +133,6 @@ fi
 
 echo
 echo "=== Repo-wide secret scan (tracked files only) ==="
-TOTAL=$((TOTAL+1))
 # 8. No literal TELEGRAM_BOT_TOKEN= in tracked files (except .env.example which
 #    should leave it blank or as a placeholder).
 hit_env_kv="$(git grep -nE '^TELEGRAM_BOT_TOKEN=[^[:space:]]+' -- ':!.env.example' ':!docs/' ':!scripts/' 2>/dev/null || true)"
@@ -157,7 +154,10 @@ fi
 
 echo
 echo "=== Summary ==="
-echo "  checks: $TOTAL, failures: $FAIL"
+echo "  per-bot checks: 7 × ${#BOTS[@]} = $((7 * ${#BOTS[@]}))"
+echo "  repo-wide checks: 2"
+echo "  total checks: $((7 * ${#BOTS[@]} + 2))"
+echo "  failures: $FAIL"
 if [[ $FAIL -gt 0 ]]; then
   echo "  RESULT: FAIL"
   for f in "${FAILURES[@]}"; do echo "    - $f"; done

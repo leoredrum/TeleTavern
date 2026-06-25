@@ -35,6 +35,7 @@ Debug
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -50,6 +51,40 @@ log = logging.getLogger("prompt-pipeline")
 # Global debug flag — flip to True to enable verbose item logging
 # ---------------------------------------------------------------------------
 DEBUG_PROMPT = False
+
+
+# ---------------------------------------------------------------------------
+# Phase 1 AB Test flag — when False, use naive prompt assembly
+# (no Director, no depth injections, no PHI — just character description +
+# history + user message). Default True (Phase 1 ON).
+# ---------------------------------------------------------------------------
+PHASE1_ENABLED = os.environ.get("PHASE1_ENABLED", "true").lower() in ("1", "true", "yes")
+
+
+def naive_assemble(card: Any, history: list[dict], user_message: str) -> list[dict]:
+    """Naive prompt assembly for AB Test comparison (Phase 1 OFF baseline).
+
+    No Director, no Depth Injections, no PHI, no Character Examples.
+    Just: character description as system prompt + raw history + user message.
+
+    This mirrors what a basic "load card → stuff into prompt" implementation
+    would look like, with no Phase 1 architecture.
+    """
+    parts: list[str] = []
+    if card.description:
+        parts.append(f"[Character Description]\n{card.description}")
+    if card.personality:
+        parts.append(f"[Personality]\n{card.personality}")
+    if card.scenario:
+        parts.append(f"[Scenario]\n{card.scenario}")
+
+    system_prompt = "\n\n".join(parts) if parts else "(empty character card)"
+
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]
+    for msg in history:
+        if msg.get("content"):
+            messages.append({"role": msg["role"], "content": msg["content"]})
+    return messages
 
 
 def _sub_placeholders(text: str, char_label: str, user_label: str) -> str:
@@ -240,16 +275,28 @@ class PromptPipeline:
         user_message: str,
         chars_per_token: float = 2.0,
     ) -> str:
-        """Return a multi-line debug report of all items and token estimates."""
+        """Return a multi-line debug report: items table + final rendered prompt.
+
+        Sections:
+          A. Items table — position, id, role, depth, token estimate, enabled, source
+          B. Final rendered messages — what Ollama actually receives, in order
+          C. Token totals
+        """
         items = self.build_items(history, user_message)
-        lines = ["=== PROMPT DEBUG REPORT ===", f"char={self.char_label}  user={self.user_label}"]
+        lines: list[str] = ["=== PROMPT DEBUG REPORT ==="]
+        lines.append(f"char={self.char_label}  user={self.user_label}  lang={self.reply_language or '-'}")
+
+        # ── A. Items table ──────────────────────────────────────────────────
+        lines.append("")
+        lines.append("── A. PromptItem table ─────────────────────────────────────")
         lines.append(f"{'Pos':>3}  {'ID':<30}  {'Role':<8}  {'Depth':>5}  {'TokEst':>6}  {'Ena':>4}  {'Source'}")
         lines.append("-" * 100)
 
-        total_tokens = 0
-        for item in sorted(items, key=lambda i: (i.position.value, i.priority)):
+        sorted_items = sorted(items, key=lambda i: (i.position.value, i.priority))
+        items_total_tokens = 0
+        for item in sorted_items:
             tok = item.token_estimate(chars_per_token)
-            total_tokens += tok
+            items_total_tokens += tok
             lines.append(
                 f"{item.position.value:3d}  "
                 f"{item.id:<30}  "
@@ -259,9 +306,36 @@ class PromptPipeline:
                 f"{str(item.enabled):>4}  "
                 f"{item.source}"
             )
-
         lines.append("-" * 100)
-        lines.append(f"{'TOTAL TOKENS (est)':>66}  {total_tokens:6d}")
+        lines.append(f"items total (est tokens): {items_total_tokens}")
+
+        # ── B. Final rendered messages (what Ollama actually sees) ──────────
+        messages = self.assemble(history, user_message)
+        lines.append("")
+        lines.append("── B. Final rendered messages (→ Ollama) ───────────────────")
+        lines.append(f"  total messages: {len(messages)}")
+        rendered_total_tokens = 0
+        for idx, msg in enumerate(messages):
+            content = msg.get("content", "")
+            tok = max(1, int(len(content) / chars_per_token))
+            rendered_total_tokens += tok
+            preview = content.replace("\n", " ⏎ ")
+            if len(preview) > 220:
+                preview = preview[:220] + "…"
+            lines.append(f"  [{idx:02d}] role={msg.get('role','?'):<9s}  tokens≈{tok:5d}  {preview}")
+        lines.append(f"rendered total (est tokens): {rendered_total_tokens}")
+
+        # ── C. Full prompt text dump (for diff) ─────────────────────────────
+        lines.append("")
+        lines.append("── C. Full prompt dump ─────────────────────────────────────")
+        for idx, msg in enumerate(messages):
+            role = msg.get("role", "?")
+            content = msg.get("content", "")
+            lines.append(f"--- message[{idx:02d}] role={role} ---")
+            lines.append(content)
+            lines.append(f"--- end message[{idx:02d}] ---")
+
+        lines.append("")
         lines.append("=== END REPORT ===")
         return "\n".join(lines)
 

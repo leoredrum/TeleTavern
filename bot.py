@@ -181,7 +181,13 @@ async def cmd_model(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_debug(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    """Show the current prompt structure — Phase 1 debug feature."""
+    """Show the current prompt structure — Phase 1 debug feature (enhanced).
+
+    Sections (separated by markers):
+      A. PromptItem table (pos / id / role / depth / tokens / enabled / source)
+      B. Final rendered messages (what Ollama actually receives, with token est.)
+      C. Full prompt dump (all message contents)
+    """
     state: AppState = ctx.bot_data["state"]
     thread = thread_id_for(update)
     history = state.store.history(thread, config.history_limit_messages)
@@ -191,14 +197,25 @@ async def cmd_debug(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
     report = state.pipeline.debug_report(history, user_sample)
 
-    # Telegram message limit
-    if len(report) > 3800:
-        report = report[:3800] + "\n…(truncated)"
-
-    await update.effective_message.reply_text(
-        f"```\n{report}\n```",
-        parse_mode=ParseMode.MARKDOWN,
-    )
+    # Telegram 4096 char limit — split into chunks if needed
+    CHUNK = 3800
+    if len(report) <= CHUNK:
+        await update.effective_message.reply_text(
+            f"```\n{report}\n```",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+    else:
+        # Send header, then chunks
+        chunks = [report[i:i + CHUNK] for i in range(0, len(report), CHUNK)]
+        await update.effective_message.reply_text(
+            f"```\n{chunks[0]}\n```\n… (共 {len(chunks)} 段)",
+            parse_mode=ParseMode.MARKDOWN,
+        )
+        for i, chunk in enumerate(chunks[1:], start=2):
+            await update.effective_message.reply_text(
+                f"```\n[第 {i}/{len(chunks)} 段]\n{chunk}\n```",
+                parse_mode=ParseMode.MARKDOWN,
+            )
 
 
 async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -261,9 +278,13 @@ async def _generate_reply(
     # Persist user turn
     state.store.append(thread, ROLE_USER, user_text)
 
-    # Build messages via PromptPipeline (Phase 1)
+    # Build messages via PromptPipeline (Phase 1) — or naive path for AB test
     history = state.store.history(thread, config.history_limit_messages)
-    messages = state.pipeline.assemble(history, user_text)
+    if pipeline_module.PHASE1_ENABLED:
+        messages = state.pipeline.assemble(history, user_text)
+    else:
+        messages = pipeline_module.naive_assemble(state.card, history, user_text)
+        log.info("PHASE1_ENABLED=false — using naive prompt path (AB test)")
 
     if pipeline_module.DEBUG_PROMPT:
         report = state.pipeline.debug_report(history, user_text)

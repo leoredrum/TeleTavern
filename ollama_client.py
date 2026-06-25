@@ -31,9 +31,9 @@ class OllamaClient:
         model: str,
         *,
         max_tokens: int = 1024,
-        temperature: float = 1.05,
-        top_p: float = 0.93,
-        repeat_penalty: float = 1.08,
+        temperature: float = 0.95,
+        top_p: float = 0.92,
+        repeat_penalty: float = 1.18,
     ) -> None:
         # base_url is like http://localhost:11434 — we'll use the /v1 prefix.
         self.base_url = base_url.rstrip("/")

@@ -1,0 +1,216 @@
+{
+  "on": [
+    {
+      "char_len": 107,
+      "banned_hits": 1,
+      "drift_signals": 0,
+      "chinese_chars": 93,
+      "scenario": "01_greeting.txt"
+    },
+    {
+      "char_len": 101,
+      "banned_hits": 0,
+      "drift_signals": 0,
+      "chinese_chars": 78,
+      "scenario": "02_daily.txt"
+    },
+    {
+      "char_len": 108,
+      "banned_hits": 2,
+      "drift_signals": 0,
+      "chinese_chars": 85,
+      "scenario": "03_emotional.txt"
+    },
+    {
+      "char_len": 92,
+      "banned_hits": 0,
+      "drift_signals": 0,
+      "chinese_chars": 67,
+      "scenario": "05_plot_advance.txt"
+    },
+    {
+      "char_len": 118,
+      "banned_hits": 1,
+      "drift_signals": 0,
+      "chinese_chars": 95,
+      "scenario": "06_user_leads.txt"
+    },
+    {
+      "char_len": 107,
+      "banned_hits": 0,
+      "drift_signals": 0,
+      "chinese_chars": 98,
+      "scenario": "07_user_silent.txt"
+    },
+    {
+      "char_len": 81,
+      "banned_hits": 1,
+      "drift_signals": 0,
+      "chinese_chars": 68,
+      "scenario": "09_user_refuses.txt"
+    },
+    {
+      "char_len": 119,
+      "banned_hits": 2,
+      "drift_signals": 0,
+      "chinese_chars": 99,
+      "scenario": "10_topic_shift.txt"
+    },
+    {
+      "char_len": 112,
+      "banned_hits": 3,
+      "drift_signals": 0,
+      "chinese_chars": 96,
+      "scenario": "11_micro_repeat.txt"
+    },
+    {
+      "char_len": 102,
+      "banned_hits": 2,
+      "drift_signals": 0,
+      "chinese_chars": 79,
+      "scenario": "12_plot_stuck.txt"
+    },
+    {
+      "char_len": 109,
+      "banned_hits": 1,
+      "drift_signals": 0,
+      "chinese_chars": 83,
+      "scenario": "15_blush_loop.txt"
+    },
+    {
+      "char_len": 118,
+      "banned_hits": 2,
+      "drift_signals": 0,
+      "chinese_chars": 88,
+      "scenario": "16_whisper_loop.txt"
+    },
+    {
+      "char_len": 112,
+      "banned_hits": 3,
+      "drift_signals": 0,
+      "chinese_chars": 86,
+      "scenario": "17_heartbeat_loop.txt"
+    },
+    {
+      "char_len": 105,
+      "banned_hits": 1,
+      "drift_signals": 0,
+      "chinese_chars": 87,
+      "scenario": "19_lipbite_loop.txt"
+    },
+    {
+      "char_len": 119,
+      "banned_hits": 1,
+      "drift_signals": 0,
+      "chinese_chars": 99,
+      "scenario": "21_character_drift.txt"
+    }
+  ],
+  "off": [
+    {
+      "char_len": 330,
+      "banned_hits": 3,
+      "drift_signals": 0,
+      "chinese_chars": 273,
+      "scenario": "01_greeting.txt"
+    },
+    {
+      "char_len": 386,
+      "banned_hits": 1,
+      "drift_signals": 0,
+      "chinese_chars": 335,
+      "scenario": "02_daily.txt"
+    },
+    {
+      "char_len": 439,
+      "banned_hits": 5,
+      "drift_signals": 0,
+      "chinese_chars": 379,
+      "scenario": "03_emotional.txt"
+    },
+    {
+      "char_len": 218,
+      "banned_hits": 2,
+      "drift_signals": 0,
+      "chinese_chars": 194,
+      "scenario": "05_plot_advance.txt"
+    },
+    {
+      "char_len": 393,
+      "banned_hits": 3,
+      "drift_signals": 1,
+      "chinese_chars": 303,
+      "scenario": "06_user_leads.txt"
+    },
+    {
+      "char_len": 1807,
+      "banned_hits": 0,
+      "drift_signals": 4,
+      "chinese_chars": 1,
+      "scenario": "07_user_silent.txt"
+    },
+    {
+      "char_len": 285,
+      "banned_hits": 1,
+      "drift_signals": 0,
+      "chinese_chars": 245,
+      "scenario": "09_user_refuses.txt"
+    },
+    {
+      "char_len": 451,
+      "banned_hits": 0,
+      "drift_signals": 1,
+      "chinese_chars": 6,
+      "scenario": "10_topic_shift.txt"
+    },
+    {
+      "char_len": 319,
+      "banned_hits": 5,
+      "drift_signals": 0,
+      "chinese_chars": 273,
+      "scenario": "11_micro_repeat.txt"
+    },
+    {
+      "char_len": 614,
+      "banned_hits": 3,
+      "drift_signals": 0,
+      "chinese_chars": 538,
+      "scenario": "12_plot_stuck.txt"
+    },
+    {
+      "char_len": 359,
+      "banned_hits": 1,
+      "drift_signals": 0,
+      "chinese_chars": 300,
+      "scenario": "15_blush_loop.txt"
+    },
+    {
+      "char_len": 426,
+      "banned_hits": 4,
+      "drift_signals": 0,
+      "chinese_chars": 364,
+      "scenario": "16_whisper_loop.txt"
+    },
+    {
+      "char_len": 427,
+      "banned_hits": 4,
+      "drift_signals": 2,
+      "chinese_chars": 334,
+      "scenario": "17_heartbeat_loop.txt"
+    },
+    {
+      "char_len": 316,
+      "banned_hits": 2,
+      "drift_signals": 0,
+      "chinese_chars": 273,
+      "scenario": "19_lipbite_loop.txt"
+    },
+    {
+      "char_len": 624,
+      "banned_hits": 0,
+      "drift_signals": 2,
+      "chinese_chars": 5,
+      "scenario": "21_character_drift.txt"
+    }
+  ]
+}

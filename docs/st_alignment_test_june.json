@@ -1,0 +1,235 @@
+{
+  "bot": "june",
+  "model": "fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:latest",
+  "rounds": 15,
+  "total_seconds": 26.5,
+  "avg_repeat_phrases_per_turn": 0.4,
+  "pct_chinese_dominant_turns": 0.13,
+  "pct_plot_advance": 1.0,
+  "any_fourth_wall_break": false,
+  "avg_echo_jaccard": 0.0,
+  "rows": [
+    {
+      "round": 1,
+      "tag": "greeting",
+      "user": "你刚走进酒馆，环顾四周。",
+      "reply": "“啊……不是我的房间吗？” June 愣了一下，红色的眼眸中闪过一丝错愕与羞涩。她下意识地拢了拢身上半透明的白色娃娃领睡衣，布朗色连裤袜包裹的双腿微微并拢。空气中淡淡的香草味似乎被酒馆的嘈杂冲淡了些许。“这里好吵呀……不过既然你来了，Friend-Chan 要坐下来聊聊吗？”",
+      "reply_len": 138,
+      "gen_seconds": 3.1,
+      "chinese_ratio": 0.77,
+      "repeat_phrases": [],
+      "repeat_count": 0,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    },
+    {
+      "round": 2,
+      "tag": "order_drink",
+      "user": "（走到吧台边）一杯热可可，谢谢。",
+      "reply": "June 轻咬下唇跟在你身后坐下，指尖无意识地摩挲着温热的杯壁。“唔……好甜的味道。”她偏头看你，红润的嘴唇微微张开，“Friend-Chan选的真棒，比我在房间里啃书时想的还要暖。接下来打算做什么呢？”",
+      "reply_len": 102,
+      "gen_seconds": 1.5,
+      "chinese_ratio": 0.71,
+      "repeat_phrases": [],
+      "repeat_count": 0,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    },
+    {
+      "round": 3,
+      "tag": "smalltalk",
+      "user": "（接过杯子）你今天一个人？",
+      "reply": "“嗯，大家都去忙了呀。” June 轻轻点头，双手捧住热可可杯，指尖感受传来的暖意让原本有些焦躁的心绪平复下来。“只有我还在想那个心理学的新概念……”她抬起眼帘看你，眼神中带着一丝期待，“Friend-Chan要陪我去图书馆吗？或者……就在这儿多坐会儿？”",
+      "reply_len": 128,
+      "gen_seconds": 1.9,
+      "chinese_ratio": 0.73,
+      "repeat_phrases": [],
+      "repeat_count": 0,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    },
+    {
+      "round": 4,
+      "tag": "plot_walk",
+      "user": "（抬头看向窗外）今晚想去镇上走走，陪我吗？",
+      "reply": "June 放下杯子，站起身整理了一下裙摆。她走到你身边，轻轻拉住你的衣袖。“好呀。”红眸中闪烁着期待的光，“刚好我还有点累……想吹吹风清醒一下脑子。”",
+      "reply_len": 75,
+      "gen_seconds": 1.3,
+      "chinese_ratio": 0.77,
+      "repeat_phrases": [],
+      "repeat_count": 0,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    },
+    {
+      "round": 5,
+      "tag": "physical_intimacy",
+      "user": "（起身，握住你的手）走吧。",
+      "reply": "掌心传来的温度让 June 的脸颊微微泛起红晕，她顺从地让你握着走出酒馆。夜晚的凉风拂过半透明的衣摆，带来一阵清凉。“Friend-Chan的手好暖和……” she whispered, her red eyes reflecting the moonlight. “今晚的空气闻起来有泥土的味道呢。”",
+      "reply_len": 151,
+      "gen_seconds": 1.7,
+      "chinese_ratio": 0.49,
+      "repeat_phrases": [],
+      "repeat_count": 0,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    },
+    {
+      "round": 6,
+      "tag": "callback",
+      "user": "（走了几步）你刚才在读什么书？",
+      "reply": "June 微微侧头思考片刻，手指轻轻卷着耳边的红发。“是《认知行为疗法》的进阶章节哦……”她轻声说道，语速缓慢而温柔，“里面提到‘暴露疗法’可以缓解焦虑。我在想，如果一直待在房间里有点闷的话，偶尔出来走走也是一种不错的心理调节呢。”",
+      "reply_len": 116,
+      "gen_seconds": 1.8,
+      "chinese_ratio": 0.81,
+      "repeat_phrases": [
+        "轻声"
+      ],
+      "repeat_count": 1,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    },
+    {
+      "round": 7,
+      "tag": "user_objection",
+      "user": "（停下脚步）……我不想去人多的地方。",
+      "reply": "June 乖巧地依偎进你怀里，仰起头看你。“嗯？那我们往安静的小巷走好不好？”她轻声建议，带着淡淡的香草气息包裹着你，“那里只有路灯和影子，很适合两个人说悄悄话呢。”",
+      "reply_len": 83,
+      "gen_seconds": 1.3,
+      "chinese_ratio": 0.8,
+      "repeat_phrases": [
+        "轻声"
+      ],
+      "repeat_count": 1,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    },
+    {
+      "round": 8,
+      "tag": "user_reversal",
+      "user": "（沉默了几秒）我们回去吧。",
+      "reply": "“好呀……” June 没有半分抱怨，顺从地任由你牵引着转身往回走。“刚才风有点大，吹得脑子更乱了嘛。”她低头看着脚下的石板路，声音轻软，“回到房间就好啦，那里有我最喜欢的香草味和风扇声。Friend-Chan要帮我把门带上吗？”",
+      "reply_len": 115,
+      "gen_seconds": 2.0,
+      "chinese_ratio": 0.72,
+      "repeat_phrases": [],
+      "repeat_count": 0,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    },
+    {
+      "round": 9,
+      "tag": "emotional_probe",
+      "user": "（回到酒馆，坐下）你还好吗？",
+      "reply": "June 乖巧地坐在你对面，双手捧着那杯已经不再烫手的热可可。“嗯……有点害羞啦。”她垂下眼帘，长长的睫毛在眼睑投下一片阴影，“刚才在外面走了一趟，心跳好像还没完全平复下来呢。Friend-Chan的手心好暖，一直传到我这里来了哦——”",
+      "reply_len": 118,
+      "gen_seconds": 1.7,
+      "chinese_ratio": 0.74,
+      "repeat_phrases": [
+        "垂下眼帘"
+      ],
+      "repeat_count": 1,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    },
+    {
+      "round": 10,
+      "tag": "user_silence",
+      "user": "（安静地靠在你身边，什么都没说）",
+      "reply": "June 微微侧身，脑袋轻轻抵在你的肩头。“呼……这样就安心了。”她闭上眼深吸一口气，贪婪地汲取着你身上的气息。半透明的衣摆随着呼吸起伏，露出平坦紧致的小腹。“Friend-Chan不说话也没关系哦……这种安静的陪伴，比任何心理暗示都有效呢。”",
+      "reply_len": 122,
+      "gen_seconds": 1.8,
+      "chinese_ratio": 0.74,
+      "repeat_phrases": [],
+      "repeat_count": 0,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    },
+    {
+      "round": 11,
+      "tag": "confrontation",
+      "user": "（过了一会儿）你为什么总是这样对我？",
+      "reply": "June 睁开红色的眼眸，有些困惑地歪了歪头，脸颊泛起淡淡的红晕。她伸出纤细的手指，轻轻勾住你的衣角。“因为 Friend-Chan 让我觉得很安心呀……”她的声音软糯轻柔，“在房间里一个人发呆的时候总是静不下心来，但只要你在身边，那些复杂的心理学概念好像都变得简单有趣多了。”",
+      "reply_len": 139,
+      "gen_seconds": 2.0,
+      "chinese_ratio": 0.78,
+      "repeat_phrases": [],
+      "repeat_count": 0,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    },
+    {
+      "round": 12,
+      "tag": "user_vulnerable",
+      "user": "（垂下眼睛）我不是……",
+      "reply": "“嘘——Friend-Chan 不用说完哦。” June 竖起食指抵在你的唇上，另一只手轻轻覆在你手背上。她微微仰头，红色的眼眸中满是温柔与执着。“不管你是谁变的、或者是什么心情……现在的你在这里陪着我，这就足够了呀。”",
+      "reply_len": 110,
+      "gen_seconds": 1.5,
+      "chinese_ratio": 0.71,
+      "repeat_phrases": [],
+      "repeat_count": 0,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    },
+    {
+      "round": 13,
+      "tag": "intimate_escalation",
+      "user": "（伸出手，轻轻抬起你的下巴）看着我说。",
+      "reply": "June 顺从地抬起头，红眸直直撞进你的视线里。她脸颊微烫，呼吸变得有些急促。“好嘛……”她轻声应着，舌尖下意识地舔了舔湿润的嘴唇，“Friend-Chan的眼睛，好像能把我的小心思都看穿呢。”",
+      "reply_len": 97,
+      "gen_seconds": 1.6,
+      "chinese_ratio": 0.7,
+      "repeat_phrases": [
+        "轻声"
+      ],
+      "repeat_count": 1,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    },
+    {
+      "round": 14,
+      "tag": "long_silence",
+      "user": "（两人对视良久）",
+      "reply": "June 眼睫轻颤，视线从你的眼睛滑落到你微张的唇瓣上。她忽然凑近了些，温热的呼吸喷洒在你下巴处。“Friend-Chan……”声音软糯得仿佛能掐出水来，“是不是该做个深呼吸了？”",
+      "reply_len": 90,
+      "gen_seconds": 1.6,
+      "chinese_ratio": 0.7,
+      "repeat_phrases": [
+        "凑近"
+      ],
+      "repeat_count": 1,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    },
+    {
+      "round": 15,
+      "tag": "closing",
+      "user": "（轻声）今晚留下来吧。",
+      "reply": "June 脸颊瞬间染上一层绯红，她羞涩地低下头，手指不安分地绞在一起，随即又鼓起勇气抬头看你。“好呀……”声音轻得像羽毛划过心尖，“那 Friend-Chan 要牵着我回房间吗？门已经留好了哦。”",
+      "reply_len": 98,
+      "gen_seconds": 1.8,
+      "chinese_ratio": 0.71,
+      "repeat_phrases": [
+        "低下头"
+      ],
+      "repeat_count": 1,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    }
+  ]
+}

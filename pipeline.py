@@ -227,9 +227,12 @@ class PromptPipeline:
         """
         items = self.build_items(history, user_message)
 
-        # Sort: absolute items by position+priority, depth items separate
+        # Sort: absolute items by position+priority, depth items separate.
+        # Chat history items (CHAT_HISTORY position) are excluded here because
+        # the raw history is added separately in step 2 — including them here
+        # would duplicate every history turn in the final prompt.
         absolute_items = sorted(
-            [i for i in items if i.is_absolute],
+            [i for i in items if i.is_absolute and i.position != PromptPosition.CHAT_HISTORY],
             key=lambda i: (i.position.value, i.priority)
         )
         depth_items = sorted(

@@ -1,14 +1,33 @@
-# --- Bot instances (runtime, not source) ---
-# README says instances live at <bot-name>/ — they hold venv/data/.env/log,
-# which are deployment artifacts. Source of truth is the monorepo root.
-/aqua/
-/june/
-/penelope/
-
-# --- Secrets & runtime config ---
+# --- Secrets & runtime config (must NEVER enter git) ---
+# Per-instance .env lives at <bot>/.env with the real Telegram token.
 .env
 .env.*
 !.env.example
+!**/.env.example
+
+# Real Telegram bot tokens have the form `<bot_id>:<35-ish base64 chars>`
+# (e.g. 7123456789:AAH...qKEw). Guard against accidental paste.
+*telegram_bot_token*
+
+# --- Bot instance deployment state ---
+# Each bot instance lives at <bot-name>/ and is a mix of:
+#   tracked (this repo):      README.md, .env.example
+#   deployment / runtime:     bot.py copy, *.py copies, venv/, data/,
+#                             *.log, __pycache__/, bot.pid, etc.
+#
+# We only track the explicitly whitelisted files per instance.
+/aqua/*
+/aqua/.*
+/june/*
+/june/.*
+/penelope/*
+/penelope/.*
+!/aqua/README.md
+!/aqua/.env.example
+!/june/README.md
+!/june/.env.example
+!/penelope/README.md
+!/penelope/.env.example
 
 # --- Python ---
 __pycache__/
@@ -27,8 +46,9 @@ ENV/
 logs/
 *.log
 
-# --- Runtime data (sessions, vector indexes) ---
+# --- Runtime data (sessions, conversation state, vector indexes) ---
 data/
+**/data/
 *.db
 *.sqlite
 *.sqlite3

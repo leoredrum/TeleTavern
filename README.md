@@ -13,14 +13,24 @@ Telegram AI 酒馆 — 一个 Telegram Bot 入口、本地 Ollama + Qwen 模型�
 
 ## 三个 Bot 实例
 
-| 实例 | 角色卡 | Token 注入方式 |
+| 实例路径 | 角色卡 | Token 注入方式 |
 |------|--------|-----------------|
-| `sillytavern-telegram-bot` | Penelope (`Penelope3.png`) | `.env` |
-| `june-telegram-bot`        | June (`June.png`)        | `.env` |
-| `aqua-telegram-bot`        | Aqua (`Aqua.png`)        | `.env` |
+| `~/Documents/telegramtavern/penelope/` | Penelope (`data/Penelope3.png`) | `penelope/.env` |
+| `~/Documents/telegramtavern/june/`     | June (`data/June.png`)          | `june/.env`     |
+| `~/Documents/telegramtavern/aqua/`     | Aqua (`data/Aqua.png`)          | `aqua/.env`     |
 
-> 这些实例继续跑在 `~/Projects/<bot-name>/`，本仓库是它们的**规范代码源**。
-> 在这里改完代码，需要 `cp` 到对应实例目录后重启。
+> 每个 bot 实例是独立的 deployment：自带 venv、`.env`、`data/`、日志。
+> 本仓库是它们的**规范代码源**；`.py` 文件是 run.sh 用的本地副本（gitignored）。
+> 改完根目录的 `.py` 后需要 `cp` 到对应实例目录再重启。
+
+## 部署 / 配置安全
+
+- **每个 bot 自带 `.env.example`**：`penelope/.env.example` / `june/.env.example` / `aqua/.env.example`。
+  新机器上 `cp .env.example .env` → 填 `TELEGRAM_BOT_TOKEN` → 启动。
+- **`.env` 永远不进 git**。`.gitignore` 把每个 bot 实例的 `.env` 排除，
+  同时把 `data/*.db`、`*.log`、`venv/` 也排除（只有 `README.md` + `.env.example` 进 git）。
+- **跑一遍配置自检**：`./scripts/check_config.sh` — 校验 token 非空、路径存在、
+  `.env` 没被 git track、tracked 文件里没有真实 token 漏出。
 
 ## 目录结构
 

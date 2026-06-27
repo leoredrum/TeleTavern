@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Dungeon Master Bot — Telegram RPG Game Master (Phase 1: Session Logging).
+Dungeon Master Bot — Telegram RPG Game Master
+(Phase 1: Session Logging + Phase 2: Game State Engine / Single Source of Truth).
 
 Fourth Telegram bot, FULLY ISOLATED from Penelope / June / Aqua.
 Talks to the DM-dedicated bridge (:8013) which fronts an isolated
@@ -60,6 +61,20 @@ logging.basicConfig(level=LOG_LEVEL,
 for _n in ("httpx", "httpcore", "telegram.request", "telegram.bot"):
     logging.getLogger(_n).setLevel(logging.WARNING)
 log = logging.getLogger("dm-bot")
+
+# ---- Game State Engine (Single Source of Truth) -----------------------------
+# bot.py lives next to game_state.py; make it importable regardless of CWD.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import game_state as G
+
+_GSM = None
+def gsm():
+    """Lazy, cached GameStateManager; ensures the state schema on first use."""
+    global _GSM
+    if _GSM is None:
+        _GSM = G.GameStateManager(DB_PATH)
+        _GSM.ensure_schema()
+    return _GSM
 
 # ---- DM Chinese Language Override (Prompt-layer; cards/world stay English) ---
 DM_LANGUAGE_OVERRIDE = """[LANGUAGE OVERRIDE — HIGHEST PRIORITY]
@@ -333,6 +348,25 @@ def _append_turn_md(session: dict, speaker: str, turn: int, text: str) -> None:
         else:
             f.write(f"\n## 第 {turn} 回合\n\n**系统**\n\n{text}\n")
 
+def _append_state_md(session: dict, turn: int, before_compact: str,
+                     after_compact: str, changes: list, conflicts: list) -> None:
+    """Append the per-turn World State block to raw_log.md (Phase 9: State Before/After/Timeline)."""
+    sdir = _session_dir(session["session_id"])
+    path = os.path.join(sdir, "raw_log.md")
+    if not os.path.exists(path):
+        return  # raw_log is created by record_turn; nothing to attach to yet
+    chg = "；".join(f"{c.get('entity','?')}：{c.get('change','?')}" for c in changes) or "（无）"
+    cnf = "；".join(f"{c.get('category','?')}：{c.get('entity','?')}" for c in conflicts) or "（无）"
+    block = (
+        f"\n> **【世界状态·第 {turn} 回合】**\n"
+        f"> - Before：{before_compact or '（空）'}\n"
+        f"> - After：{after_compact or '（空）'}\n"
+        f"> - 变更：{chg}\n"
+        f"> - 冲突：{cnf}\n"
+    )
+    with open(path, "a", encoding="utf-8") as f:
+        f.write(block)
+
 def _group_turns_by_number(turns):
     by_turn = {}
     for t in turns:
@@ -410,6 +444,7 @@ async def cmd_newgame(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     archived = archive_active_sessions(DB_PATH, chat_id)
     session = create_session(DB_PATH, chat_id, title="新冒险",
                              character_name=DEFAULT_CHARACTER)
+    gsm().init_state(session["session_id"])  # fresh world state (Phase 2)
     head = (f"🎲 旧局已归档（{archived} 局），新一局冒险开始！\n"
             if archived else "🎲 新一局冒险开始！\n")
     await update.message.reply_text(
@@ -548,19 +583,30 @@ async def _generate_and_reply(update: Update, user_text: str,
     chat_id = update.effective_chat.id
     placeholder = await update.message.reply_text("🎲 正在演绎……")
     turn_no = None
+    state_before_compact = ""
+    st = None
+    if session:
+        # Phase 2: load the authoritative world state (Single Source of Truth).
+        st = gsm().get_or_init(session["session_id"])
+        state_before_compact = gsm().render_compact(st)
     if session and log_player:
         turn_no = next_turn_number(DB_PATH, session["session_id"])
         record_turn(DB_PATH, session, "player", turn_no,
                     log_player_text if log_player_text is not None else user_text,
                     {"source": "telegram", "chat_id": chat_id})
         touch_session(DB_PATH, session["session_id"])
+    # Phase 3 + 7: system prompt = Language Override + CURRENT WORLD STATE (anchor) + STATE GUARD
+    sys_content = DM_LANGUAGE_OVERRIDE
+    if st is not None:
+        sys_content = (DM_LANGUAGE_OVERRIDE + "\n\n"
+                       + gsm().render_block(st) + "\n\n" + G.STATE_GUARD)
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}",
                "Content-Type": "application/json"}
     payload = {
         "model": "dungeon-master",
         "stream": True,
         "messages": [
-            {"role": "system", "content": DM_LANGUAGE_OVERRIDE},
+            {"role": "system", "content": sys_content},
             {"role": "user", "content": user_text},
         ],
     }
@@ -603,6 +649,18 @@ async def _generate_and_reply(update: Update, user_text: str,
         if session and full and turn_no is not None:
             record_turn(DB_PATH, session, "dungeon_master", turn_no, full,
                         {"source": "dm_bridge", "model": "dungeon-master"})
+            # Phase 4/5/6: rule-based state updater + validator + timeline (no AI).
+            if st is not None:
+                try:
+                    changes = G.StateUpdater(gsm()).update(st, turn_no, user_text, full)
+                    conflicts = G.StateValidator(gsm()).validate(st, turn_no, full)
+                    after_compact = gsm().render_compact(st)
+                    _append_state_md(session, turn_no, state_before_compact,
+                                     after_compact, changes, conflicts)
+                    log.info("state turn=%d changes=%d conflicts=%d",
+                             turn_no, len(changes), len(conflicts))
+                except Exception as exc:  # noqa: BLE001
+                    log.warning("state engine error: %s", exc)
             touch_session(DB_PATH, session["session_id"])
         log.info("chat_id=%s reply len=%d", chat_id, len(full))
     except aiohttp.ClientConnectorError:
@@ -619,6 +677,7 @@ def main() -> None:
         print("ERROR: TELEGRAM_BOT_TOKEN is empty. Copy .env.example to .env and fill it.")
         sys.exit(1)
     init_db(DB_PATH)
+    gsm()  # ensure Game State Engine schema (world_state / state_flags / state_history)
     os.makedirs(SESSIONS_DIR, exist_ok=True)
     log.info("DB at %s", DB_PATH)
     log.info("sessions dir at %s", SESSIONS_DIR)
@@ -634,7 +693,7 @@ def main() -> None:
     ):
         app.add_handler(CommandHandler(name, fn))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_handler))
-    log.info("Dungeon Master bot starting (Phase 1: session logging + exports).")
+    log.info("Dungeon Master bot starting (Phase 2: Game State Engine as Single Source of Truth).")
     app.run_polling()
 
 if __name__ == "__main__":

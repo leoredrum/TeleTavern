@@ -49,3 +49,11 @@ data/
 session/
 tmp/
 chatbridge/
+
+# DM game session logs (never commit real RP content)
+dungeon-master-bot/sessions/
+sessions/
+
+# local backups (keep on disk, out of git)
+*.bak
+*.bak-*

@@ -1,0 +1,51 @@
+# Secrets (must NEVER enter git)
+*.env
+*.env.*
+!.env.example
+
+# Real Telegram bot tokens have the form `<bot_id>:<35-ish base64 chars>`
+*telegram_bot_token*
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# venv
+venv/
+.venv/
+
+# Runtime state
+logs/*.log
+logs/*.pid
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+
+# Tests
+tests/screenshots/
+tests/headless.*
+tests/.pytest_cache/
+
+# IDE / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Build artifacts
+*.tgz
+backups/.env
+logs/
+*.log
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+node_modules/
+secrets/
+data/
+session/
+tmp/
+chatbridge/

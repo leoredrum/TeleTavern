@@ -89,6 +89,18 @@ def rule():
         _RULE.ensure_schema()
     return _RULE
 
+# ---- Director Engine (Phase 4) — PROGRAM owns narrative CONTROL -------------
+import director_engine as DE
+
+_DIRECTOR = None
+def director():
+    """Lazy cached DirectorEngine; ensures director schema (scene/beat control)."""
+    global _DIRECTOR
+    if _DIRECTOR is None:
+        _DIRECTOR = DE.DirectorEngine(DB_PATH)
+        _DIRECTOR.ensure_schema()
+    return _DIRECTOR
+
 # ---- DM Chinese Language Override (Prompt-layer; cards/world stay English) ---
 DM_LANGUAGE_OVERRIDE = """[LANGUAGE OVERRIDE — HIGHEST PRIORITY]
 你必须永远用简体中文进行游戏主持。无论玩家使用何种语言。
@@ -396,7 +408,7 @@ def _append_turn_md(session: dict, speaker: str, turn: int, text: str) -> None:
 def _append_state_md(session: dict, turn: int, before_compact: str,
                      after_compact: str, changes: list, conflicts: list,
                      rpg_before: str = "", rpg_after: str = "",
-                     rule_changes: list = None) -> None:
+                     rule_changes: list = None, director_changes: list = None) -> None:
     """Append the per-turn World + Rule state block to raw_log.md.
 
     Phase 9 (world) + Phase 12 (rule changes): Before / Dialogue / After /
@@ -409,12 +421,14 @@ def _append_state_md(session: dict, turn: int, before_compact: str,
     chg = "；".join(f"{c.get('entity','?')}：{c.get('change','?')}" for c in (changes or [])) or "（无）"
     rch = "；".join(f"{c.get('entity','?')}：{c.get('change','?')}" for c in (rule_changes or [])) or "（无）"
     cnf = "；".join(f"{c.get('category','?')}：{c.get('entity','?')}" for c in (conflicts or [])) or "（无）"
+    dch = "；".join(f"{c.get('entity','?')}：{c.get('change','?')}" for c in (director_changes or [])) or "（无）"
     block = (
-        f"\n> **【第 {turn} 回合 · 世界 + 规则状态】**\n"
+        f"\n> **【第 {turn} 回合 · 世界 + 规则 + 导演状态】**\n"
         f"> - 世界 Before：{before_compact or '（空）'}\n"
         f"> - 规则 Before：{rpg_before or '（空）'}\n"
         f"> - 叙事变更：{chg}\n"
         f"> - 规则变更（程序裁定）：{rch}\n"
+        f"> - 导演变更（场景/节拍/转换）：{dch}\n"
         f"> - 世界 After：{after_compact or '（空）'}\n"
         f"> - 规则 After：{rpg_after or '（空）'}\n"
         f"> - 冲突：{cnf}\n"
@@ -695,8 +709,10 @@ async def _generate_and_reply(update: Update, user_text: str,
         # Phase 2 + 3: world state anchor + RPG rule snapshot + both guards.
         sys_content = (DM_LANGUAGE_OVERRIDE + "\n\n"
                        + gsm().render_block(st) + "\n\n"
+                       + director().render_director_state(session["session_id"]) + "\n\n"
                        + rule().render_rpg_snapshot(session["session_id"]) + "\n\n"
-                       + G.STATE_GUARD + "\n\n" + RE.RPG_GUARD)
+                       + G.STATE_GUARD + "\n\n" + RE.RPG_GUARD + "\n\n"
+                       + DE.DIRECTOR_GUARD)
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}",
                "Content-Type": "application/json"}
     payload = {
@@ -754,6 +770,11 @@ async def _generate_and_reply(update: Update, user_text: str,
                     # Phase 3: rule engine turns narrative changes into AUTHORITATIVE rules
                     # (enemy death -> fixed XP + loot drop; player HP; registry pickups).
                     rule_changes = rule().intake(session["session_id"], turn_no, changes, full)
+                    # Phase 4: Director controls scene/beat/objective/transition —
+                    # turns Phase 2's passive location_jump detection into ACTIVE
+                    # control (unauthorized teleports are reverted on world state).
+                    director_changes = director().intake(session["session_id"], turn_no,
+                                                         changes, rule_changes, full, st)
                     conflicts = G.StateValidator(gsm()).validate(st, turn_no, full)
                     rule_conflicts = rule().validate_reply(session["session_id"], full)
                     conflicts = (conflicts or []) + (rule_conflicts or [])
@@ -763,9 +784,11 @@ async def _generate_and_reply(update: Update, user_text: str,
                                      after_compact, changes, conflicts,
                                      rpg_before=rpg_before_compact,
                                      rpg_after=rpg_after_compact,
-                                     rule_changes=rule_changes)
-                    log.info("turn=%d narrative=%d rule=%d conflicts=%d",
-                             turn_no, len(changes), len(rule_changes), len(conflicts))
+                                     rule_changes=rule_changes,
+                                     director_changes=director_changes)
+                    log.info("turn=%d narrative=%d rule=%d director=%d conflicts=%d",
+                             turn_no, len(changes), len(rule_changes),
+                             len(director_changes), len(conflicts))
                 except Exception as exc:  # noqa: BLE001
                     log.warning("state/rule engine error: %s", exc)
             touch_session(DB_PATH, session["session_id"])
@@ -786,6 +809,7 @@ def main() -> None:
     init_db(DB_PATH)
     gsm()  # ensure Game State Engine schema (world_state / state_flags / state_history)
     rule()  # ensure RPG Rule Engine schema + seed item registry (Phase 3)
+    director()  # ensure Director Engine schema (director_state / scene_timeline, Phase 4)
     os.makedirs(SESSIONS_DIR, exist_ok=True)
     log.info("DB at %s", DB_PATH)
     log.info("sessions dir at %s", SESSIONS_DIR)

@@ -717,9 +717,13 @@ async def _generate_and_reply(update: Update, user_text: str,
                        + DE.DIRECTOR_GUARD)
     headers = {"Authorization": f"Bearer {OPENAI_API_KEY}",
                "Content-Type": "application/json"}
+    # P0 根因修复：显式提高 max_tokens。原 payload 未设 → ST/ollama 默认上限 ~1500 字，
+    # LLM 在上限处戛断半句（turn150 停在「影魔被消灭，化作一团」、turn140 停在「命中！(1d6+」骰子公式未写完）。
+    # 提高（非降低，用户仅禁「降低 max_tokens」）让战斗结算/战利品/状态栏/结尾完整生成。
     payload = {
         "model": "dungeon-master",
         "stream": True,
+        "max_tokens": 4096,
         "messages": [
             {"role": "system", "content": sys_content},
             {"role": "user", "content": user_text},
@@ -727,6 +731,7 @@ async def _generate_and_reply(update: Update, user_text: str,
     }
     url = OPENAI_BASE_URL.rstrip("/") + "/chat/completions"
     full = ""
+    done_normally = False  # P0 诊断：bridge 流式是否正常收到 [DONE]（区分生成中断 vs 发送截断）
     last_edit = 0.0
     loop = asyncio.get_event_loop()
     try:
@@ -743,6 +748,7 @@ async def _generate_and_reply(update: Update, user_text: str,
                         continue
                     data = line[5:].strip()
                     if data == "[DONE]":
+                        done_normally = True
                         break
                     try:
                         obj = json.loads(data)
@@ -765,8 +771,14 @@ async def _generate_and_reply(update: Update, user_text: str,
                                 last_edit = now
         # P0 hotfix: 超长回复自动分段发送（第一段复用 placeholder，后续段顺序发送）。
         # 不截断 / 不缩内容；full 完整记录到 DB，分段只影响 Telegram 显示。
-        await TS.send_long_message(update.message, full or "（无回复）",
-                                   first_message=placeholder)
+        # P0 诊断（无 token）：区分 bridge/生成层截断 vs Telegram 发送层截断。
+        log.info("BRIDGE_RAW_REPLY_LEN=%d stream_done=%s chat_id=%s",
+                 len(full), done_normally, chat_id)
+        _diag = await TS.send_long_message(update.message, full or "（无回复）",
+                                           first_message=placeholder)
+        log.info("SEND_DIAG input_len=%d segments=%d lengths=%s results=%s exceptions=%s",
+                 _diag["input_len"], _diag["segments"], _diag["lengths"],
+                 _diag["results"], _diag["exceptions"][:4])
         if session and full and turn_no is not None:
             record_turn(DB_PATH, session, "dungeon_master", turn_no, full,
                         {"source": "dm_bridge", "model": "dungeon-master"})
@@ -802,11 +814,12 @@ async def _generate_and_reply(update: Update, user_text: str,
             touch_session(DB_PATH, session["session_id"])
         log.info("chat_id=%s reply len=%d", chat_id, len(full))
     except aiohttp.ClientConnectorError:
+        log.warning("STREAM_ERROR connector full_len=%d stream_done=%s", len(full), done_normally)
         await placeholder.edit_text(
             f"❌ 无法连接 DM bridge（{OPENAI_BASE_URL}）。请确认方案 B 已部署（DM bridge :8013 + DM st-runner）。"
         )
     except Exception as exc:  # noqa: BLE001
-        log.warning("generate failed: %s", exc)
+        log.warning("STREAM_ERROR exc=%s full_len=%d stream_done=%s", exc, len(full), done_normally)
         await placeholder.edit_text(f"❌ 出错了：{exc}")
 
 # ---- main -------------------------------------------------------------------

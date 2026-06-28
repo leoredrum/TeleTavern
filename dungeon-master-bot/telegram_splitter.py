@@ -176,44 +176,48 @@ def _balance(chunk):
 # --------------------------------------------------------------------------- #
 # 统一发送接口
 # --------------------------------------------------------------------------- #
-async def send_long_message(message, text,
-                            first_message=None, parse_mode=None):
-    """顺序发送长消息（不并发、不乱序）。
+async def send_long_message(message=None, text="",
+                            first_message=None, parse_mode=None,
+                            bot=None, chat_id=None):
+    """统一长消息发送（顺序、不并发、不乱序、绝不静默停）。
 
-    message      : 有 reply_text 的对象（通常是 update.message）。
-    text         : 任意长度文本。
-    first_message: 可选，流式占位 Message；若提供，第一段复用它（edit_text），
-                   其余段顺序 reply_text —— 保证 Part1→Part2→Part3 顺序。
-    parse_mode   : 可选 'Markdown' / 'MarkdownV2' / 'HTML'；失败自动回退纯文本。
-    返回：已发送的 Message 列表。
+    两种发送模式（二选一）：
+      - message 模式：message 有 reply_text；first_message 可复用流式 placeholder 作第一段。
+      - bot + chat_id 模式：probe / 命令路径用 bot.send_message(chat_id=...)。
+    parse_mode 默认 None（纯文本，优先完整送达；第一轮禁用 Markdown 以排除解析失败）。
+    每段独立 try/except：失败记录 + 继续，绝不因一段失败而停发后续段。
+    返回诊断 dict（无 token）：input_len / segments / lengths / results / exceptions。
     """
     chunks = split_text(text)
+    diag = {"input_len": len(text or ""), "segments": len(chunks),
+            "lengths": [len(c) for c in chunks], "results": [], "exceptions": []}
     if not chunks:
-        return []
-    sent = []
+        return diag
 
-    head, rest = chunks[0], chunks[1:]
-    if first_message is not None:
-        try:
-            await first_message.edit_text(head)
-        except Exception:
-            pass                                # placeholder 编辑失败不阻塞后续
-        sent.append(first_message)
-    else:
-        sent.append(await _safe_send(message, head, parse_mode))
+    async def _send_one(chunk, is_head):
+        # head + first_message：优先 edit_text 复用 placeholder；失败退回正常发送
+        if is_head and first_message is not None and bot is None:
+            try:
+                await first_message.edit_text(chunk)
+                return first_message
+            except Exception as e:
+                diag["exceptions"].append("head_edit:%s" % type(e).__name__)
+        # 正常发送：bot.send_message 或 message.reply_text（2 次尝试：正常 + 纯文本兜底）
+        for attempt in (1, 2):
+            try:
+                if bot is not None and chat_id is not None:
+                    return await bot.send_message(chat_id=chat_id, text=chunk)
+                return await message.reply_text(chunk)
+            except Exception as e:
+                err = "%s:%s" % (type(e).__name__, str(e)[:160])
+                if attempt == 1:
+                    diag["exceptions"].append("try1:%s" % err)
+                    continue
+                diag["exceptions"].append("FAIL:%s" % err)
+                return None
+        return None
 
-    for chunk in rest:
-        sent.append(await _safe_send(message, chunk, parse_mode))
-    return sent
-
-
-async def _safe_send(message, chunk, parse_mode):
-    try:
-        return await message.reply_text(chunk, parse_mode=parse_mode) \
-            if parse_mode else await message.reply_text(chunk)
-    except Exception:
-        # parse_mode 解析失败 → 纯文本重试，绝不丢内容
-        try:
-            return await message.reply_text(chunk)
-        except Exception:
-            return None
+    for i, chunk in enumerate(chunks):
+        msg = await _send_one(chunk, is_head=(i == 0))
+        diag["results"].append("ok" if msg is not None else "FAIL")
+    return diag

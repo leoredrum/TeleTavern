@@ -101,6 +101,8 @@ def director():
         _DIRECTOR.ensure_schema()
     return _DIRECTOR
 
+import telegram_splitter as TS   # P0 hotfix: 长消息安全分段发送（只修输出层）
+
 # ---- DM Chinese Language Override (Prompt-layer; cards/world stay English) ---
 DM_LANGUAGE_OVERRIDE = """[LANGUAGE OVERRIDE — HIGHEST PRIORITY]
 你必须永远用简体中文进行游戏主持。无论玩家使用何种语言。
@@ -754,11 +756,17 @@ async def _generate_and_reply(update: Update, user_text: str,
                             now = loop.time()
                             if now - last_edit >= EDIT_INTERVAL_S:
                                 try:
-                                    await placeholder.edit_text(full + "▌")
+                                    # P0 hotfix: 流式预览截断，避免 edit_text 卡在 4096 上限
+                                    preview = (full if len(full) < TS.STREAM_PREVIEW_LIMIT
+                                               else full[:TS.STREAM_PREVIEW_LIMIT] + "\n…▌")
+                                    await placeholder.edit_text(preview)
                                 except Exception:
                                     pass
                                 last_edit = now
-        await placeholder.edit_text(full or "（无回复）")
+        # P0 hotfix: 超长回复自动分段发送（第一段复用 placeholder，后续段顺序发送）。
+        # 不截断 / 不缩内容；full 完整记录到 DB，分段只影响 Telegram 显示。
+        await TS.send_long_message(update.message, full or "（无回复）",
+                                   first_message=placeholder)
         if session and full and turn_no is not None:
             record_turn(DB_PATH, session, "dungeon_master", turn_no, full,
                         {"source": "dm_bridge", "model": "dungeon-master"})

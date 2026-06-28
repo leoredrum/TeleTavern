@@ -23,6 +23,8 @@ Telegram 长消息安全分段发送（只修输出层；不动 Prompt / Rule En
 长度：  SAFE_LIMIT = 3800（Telegram 单条硬上限 4096，预留余量不卡上限）。
 """
 import re
+import hashlib
+import time
 
 TELEGRAM_LIMIT = 4096          # Telegram 单条消息硬上限
 SAFE_LIMIT = 3800              # 每段安全长度（预留余量）
@@ -176,16 +178,25 @@ def _balance(chunk):
 # --------------------------------------------------------------------------- #
 # 统一发送接口
 # --------------------------------------------------------------------------- #
+_RECENT_SENDS = {}  # (chat_id, text_hash) -> ts；send 去重保险窗口（阶段4）
+
+
+def _dedup_key(chat_id, text):
+    return (chat_id, hashlib.md5(text.encode("utf-8")).hexdigest()[:12])
+
+
 async def send_long_message(message=None, text="",
                             first_message=None, parse_mode=None,
                             bot=None, chat_id=None):
-    """统一长消息发送（顺序、不并发、不乱序、绝不静默停）。
+    """统一长消息发送（顺序、不并发、不乱序、绝不重复、绝不静默停）。
 
     两种发送模式（二选一）：
       - message 模式：message 有 reply_text；first_message 可复用流式 placeholder 作第一段。
       - bot + chat_id 模式：probe / 命令路径用 bot.send_message(chat_id=...)。
-    parse_mode 默认 None（纯文本，优先完整送达；第一轮禁用 Markdown 以排除解析失败）。
-    每段独立 try/except：失败记录 + 继续，绝不因一段失败而停发后续段。
+    parse_mode 默认 None（纯文本，优先完整送达）。
+    去重：同 chat_id + 同文本 + 10s 内 → 不重发（duplicate_suppressed，根因修复外的保险）。
+    head edit 失败（含"not modified"=与 streaming preview 内容相同）绝不 fallback reply_text
+    —— 那会与 placeholder 重复。placeholder 保留现状。
     返回诊断 dict（无 token）：input_len / segments / lengths / results / exceptions。
     """
     chunks = split_text(text)
@@ -194,15 +205,32 @@ async def send_long_message(message=None, text="",
     if not chunks:
         return diag
 
+    # send 去重保险（阶段4）：同 chat + 同文本 + 10s 内 → 不重发
+    cid = chat_id if (bot is not None and chat_id is not None) \
+        else getattr(getattr(message, "chat", None), "id", None)
+    dk = _dedup_key(cid, text or "")
+    now = time.time()
+    if dk in _RECENT_SENDS and now - _RECENT_SENDS[dk] < 10:
+        diag["exceptions"].append("duplicate_suppressed")
+        diag["results"] = ["dup_suppressed"] * len(chunks)
+        return diag
+    _RECENT_SENDS[dk] = now
+    if len(_RECENT_SENDS) > 500:  # 简单清理：删 60s 外的旧条目
+        for k in list(_RECENT_SENDS):
+            if now - _RECENT_SENDS[k] > 60:
+                del _RECENT_SENDS[k]
+
     async def _send_one(chunk, is_head):
-        # head + first_message：优先 edit_text 复用 placeholder；失败退回正常发送
+        # head + first_message：复用 streaming placeholder。
+        # edit_text 失败（含"not modified"=内容与 preview 相同）绝不 fallback reply_text
+        # —— 否则会与 placeholder 重复发送第一条。placeholder 保留现状（已有 preview/内容）。
         if is_head and first_message is not None and bot is None:
             try:
                 await first_message.edit_text(chunk)
-                return first_message
             except Exception as e:
                 diag["exceptions"].append("head_edit:%s" % type(e).__name__)
-        # 正常发送：bot.send_message 或 message.reply_text（2 次尝试：正常 + 纯文本兜底）
+            return first_message
+        # 非head / 无 placeholder：正常顺序发送（2 次尝试：正常 + 纯文本兜底）
         for attempt in (1, 2):
             try:
                 if bot is not None and chat_id is not None:

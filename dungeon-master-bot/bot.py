@@ -26,6 +26,8 @@ are never modified. sessions/ is gitignored (no real RP content in git).
 import os
 import sys
 import re
+import time
+import hashlib
 import json
 import uuid
 import asyncio
@@ -44,6 +46,10 @@ OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "http://127.0.0.1:8013/v1")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "tavern-dm-user-api-key-change-me")
 EDIT_INTERVAL_S = float(os.environ.get("EDIT_INTERVAL_S", "1.0"))
 REQUEST_TIMEOUT_S = float(os.environ.get("REQUEST_TIMEOUT_S", "180"))
+
+# 阶段5：update 去重 LRU —— (chat_id, update_id) -> ts。
+# 防 Telegram 409 冲突/重连导致的同一条 update 重放 → 重复回复。内存即可（单进程）。
+_PROCESSED_UPDATES = {}
 DB_PATH = os.environ.get(
     "DB_PATH",
     os.path.join(os.path.dirname(__file__), "..", "logs", "dm_save.db"),
@@ -681,6 +687,23 @@ async def _generate_and_reply(update: Update, user_text: str,
                               session=None, log_player: bool = True,
                               log_player_text: str = None) -> None:
     chat_id = update.effective_chat.id
+    # 阶段5：update 去重（先于 placeholder，重放绝不发第二条占位/回复）。
+    upd_id = getattr(update, "update_id", None)
+    msg_id = getattr(getattr(update, "message", None), "message_id", None)
+    _uk = (chat_id, upd_id) if upd_id is not None else (chat_id, "m", msg_id)
+    _now = time.time()
+    if _uk in _PROCESSED_UPDATES:
+        log.info("update_duplicate_suppressed chat_id=%s update_id=%s message_id=%s",
+                 chat_id, upd_id, msg_id)
+        return
+    _PROCESSED_UPDATES[_uk] = _now
+    if len(_PROCESSED_UPDATES) > 500:
+        for _k in list(_PROCESSED_UPDATES):
+            if _now - _PROCESSED_UPDATES[_k] > 300:
+                del _PROCESSED_UPDATES[_k]
+    # 阶段2：唯一 update 追踪 —— 一个 user message 必须且仅必须 handler_enter 一次。
+    log.info("handler_enter chat_id=%s update_id=%s message_id=%s user_text_len=%d",
+             chat_id, upd_id, msg_id, len(user_text or ""))
     placeholder = await update.message.reply_text("🎲 正在演绎……")
     turn_no = None
     state_before_compact = ""
@@ -772,13 +795,18 @@ async def _generate_and_reply(update: Update, user_text: str,
         # P0 hotfix: 超长回复自动分段发送（第一段复用 placeholder，后续段顺序发送）。
         # 不截断 / 不缩内容；full 完整记录到 DB，分段只影响 Telegram 显示。
         # P0 诊断（无 token）：区分 bridge/生成层截断 vs Telegram 发送层截断。
-        log.info("BRIDGE_RAW_REPLY_LEN=%d stream_done=%s chat_id=%s",
-                 len(full), done_normally, chat_id)
-        _diag = await TS.send_long_message(update.message, full or "（无回复）",
+        log.info("BRIDGE_RAW_REPLY_LEN=%d stream_done=%s chat_id=%s update_id=%s",
+                 len(full), done_normally, chat_id, upd_id)
+        _final_text = full or "（无回复）"
+        _final_hash = hashlib.md5(_final_text.encode("utf-8")).hexdigest()[:12]
+        # 阶段2：send 调用追踪 —— handler_enter 一次必须仅 send_long_message_call 一次。
+        log.info("send_long_message_call chat_id=%s update_id=%s final_text_hash=%s final_len=%d",
+                 chat_id, upd_id, _final_hash, len(_final_text))
+        _diag = await TS.send_long_message(update.message, _final_text,
                                            first_message=placeholder)
-        log.info("SEND_DIAG input_len=%d segments=%d lengths=%s results=%s exceptions=%s",
+        log.info("SEND_DIAG input_len=%d segments=%d lengths=%s results=%s exceptions=%s final_text_hash=%s",
                  _diag["input_len"], _diag["segments"], _diag["lengths"],
-                 _diag["results"], _diag["exceptions"][:4])
+                 _diag["results"], _diag["exceptions"][:4], _final_hash)
         if session and full and turn_no is not None:
             record_turn(DB_PATH, session, "dungeon_master", turn_no, full,
                         {"source": "dm_bridge", "model": "dungeon-master"})

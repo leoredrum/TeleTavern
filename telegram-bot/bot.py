@@ -24,6 +24,11 @@ from pathlib import Path
 import aiohttp
 from dotenv import load_dotenv
 from telegram import Update
+
+# V2.3: reuse the DM long-message splitter (copied into this dir at deploy).
+# Handles >4096-char replies by splitting on natural boundaries and sending
+# sequential segments, instead of hard-truncating to 4000 chars.
+import telegram_splitter
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
@@ -56,6 +61,13 @@ OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "tavern-v2-user-api-key-change
 EDIT_INTERVAL_S = float(os.environ.get("EDIT_INTERVAL_S", "1.0"))
 REQUEST_TIMEOUT_S = float(os.environ.get("REQUEST_TIMEOUT_S", "180"))
 
+# V2.3 multi-char — bridge control endpoints (same host:port as the chat endpoint).
+_BRIDGE_ROOT = OPENAI_BASE_URL.rstrip("/").removesuffix("/v1")
+CHARACTERS_URL = _BRIDGE_ROOT + "/v1/characters"
+SELECT_CHAR_URL = _BRIDGE_ROOT + "/v1/select_character"
+CLEAR_CHAT_URL = _BRIDGE_ROOT + "/v1/clear_chat"
+AUTH_HEADERS = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+
 # Per-chat lock so two messages in the same chat serialize through ST.
 _chat_locks: dict[int, asyncio.Lock] = {}
 
@@ -69,8 +81,11 @@ def lock_for(chat_id: int) -> asyncio.Lock:
 HELP_TEXT = (
     "🤖 *Telegram Tavern V2 (SillyTavern + Qwen3.6)*\n\n"
     "命令：\n"
-    "  /start   — 重新开始对话（清空当前 ST 聊天）\n"
-    "  /reset   — 清空当前 ST 聊天\n"
+    "  /start   — 重置当前对话（开新 ST 聊天）\n"
+    "  /chars   — 列出所有角色（⭐当前 🎬Director）\n"
+    "  /use <名称> — 切换角色（如 /use Penelope3），切换即开新对话\n"
+    "  /where   — 查看当前角色 / 消息数 / Director 状态\n"
+    "  /reset   — 清空当前角色对话（开新聊天，保留历史文件）\n"
     "  /ping    — 检查 bridge / ST / Ollama 健康\n"
     "  /help    — 显示此帮助\n\n"
     "直接发文本即可对话。"
@@ -120,9 +135,17 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_reset(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.effective_message.reply_text(
-        "下一条消息会作为新对话的第一条发送。"
-    )
+    # V2.3: ST-native clearChat for the active character — starts a fresh chat.
+    # ST keeps the old chat file in its chats/ history; this only clears the
+    # live session. Needs bridge + extension connected and ST to export clearChat.
+    try:
+        async with aiohttp.ClientSession() as session:
+            await clear_active_chat(session)
+        await update.effective_message.reply_text("♻️ 当前角色对话已清空，下一条消息开始新会话。")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("/reset clear_chat failed: %s", exc)
+        await update.effective_message.reply_text(
+            f"❌ 清空失败: {exc}\n（bridge/extension 未连接，或 ST 未导出 clearChat）")
 
 
 async def cmd_ping(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -134,6 +157,134 @@ async def cmd_ping(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_help(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.effective_message.reply_text(HELP_TEXT, parse_mode=ParseMode.MARKDOWN)
+
+
+# ---------- V2.3 multi-char: character list / switch / where ----------
+
+
+def match_character(characters: list[dict], query: str) -> dict | None:
+    """Find a character by exact name → case-insensitive name → avatar → substring.
+
+    Pure function (no I/O) so it is unit-testable without the bridge.
+    """
+    if not characters or not query:
+        return None
+    q = query.strip()
+    ql = q.lower()
+    # 1) exact name
+    for c in characters:
+        if (c.get("name") or "").strip() == q:
+            return c
+    # 2) case-insensitive exact name
+    for c in characters:
+        if (c.get("name") or "").strip().lower() == ql:
+            return c
+    # 3) avatar exact
+    for c in characters:
+        if (c.get("avatar") or "") == q:
+            return c
+    # 4) substring (name contains query) — pick the shortest matching name
+    #    (least ambiguous), e.g. /use pen → Penelope3 over Penelope-Long-Name.
+    subs = [c for c in characters if ql in (c.get("name") or "").lower()]
+    if subs:
+        return min(subs, key=lambda c: len(c.get("name") or ""))
+    return None
+
+
+async def fetch_characters(session: aiohttp.ClientSession) -> list[dict]:
+    """GET /v1/characters → list of char dicts (name/avatar/active/director_enabled/...)."""
+    async with session.get(
+        CHARACTERS_URL, headers=AUTH_HEADERS,
+        timeout=aiohttp.ClientTimeout(total=15),
+    ) as resp:
+        data = await resp.json()
+        if resp.status != 200:
+            raise RuntimeError(f"bridge characters HTTP {resp.status}: {data}")
+        return data.get("characters", [])
+
+
+async def select_character(session: aiohttp.ClientSession, avatar: str) -> dict:
+    """POST /v1/select_character {avatar} → {ok,name,active_character,director_enabled}."""
+    async with session.post(
+        SELECT_CHAR_URL,
+        headers={**AUTH_HEADERS, "Content-Type": "application/json"},
+        json={"avatar": avatar},
+        timeout=aiohttp.ClientTimeout(total=30),
+    ) as resp:
+        data = await resp.json()
+        if resp.status != 200 or not data.get("ok"):
+            raise RuntimeError(data.get("error") or f"select HTTP {resp.status}")
+        return data
+
+
+async def clear_active_chat(session: aiohttp.ClientSession) -> dict:
+    """POST /v1/clear_chat → ST clears the active character's chat (new chat)."""
+    async with session.post(
+        CLEAR_CHAT_URL, headers=AUTH_HEADERS,
+        timeout=aiohttp.ClientTimeout(total=30),
+    ) as resp:
+        data = await resp.json()
+        if resp.status != 200 or not data.get("ok"):
+            raise RuntimeError(data.get("error") or f"clear HTTP {resp.status}")
+        return data
+
+
+async def cmd_chars(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        async with aiohttp.ClientSession() as session:
+            chars = await fetch_characters(session)
+    except Exception as exc:  # noqa: BLE001
+        await update.effective_message.reply_text(f"❌ 无法获取角色列表: {exc}")
+        return
+    lines = []
+    for c in chars:
+        mark = "⭐" if c.get("active") else "　"
+        d = " 🎬" if c.get("director_enabled") else ""
+        nm = c.get("name") or c.get("avatar") or "?"
+        lines.append(f"{mark} {nm}{d}")
+    head = f"🎭 角色（共 {len(chars)} 个，⭐=当前 🎬=Director）：\n\n"
+    await update.effective_message.reply_text(head + ("\n".join(lines) if lines else "（无）"))
+
+
+async def cmd_use(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    args = context.args if context and context.args else []
+    query = " ".join(args).strip()
+    if not query:
+        await update.effective_message.reply_text("用法：/use <角色名>\n例如：/use Penelope3\n发 /chars 查看列表。")
+        return
+    try:
+        async with aiohttp.ClientSession() as session:
+            chars = await fetch_characters(session)
+            target = match_character(chars, query)
+            if target is None:
+                await update.effective_message.reply_text(
+                    f"❌ 找不到角色「{query}」。发 /chars 查看列表。")
+                return
+            res = await select_character(session, target.get("avatar"))
+    except Exception as exc:  # noqa: BLE001
+        await update.effective_message.reply_text(f"❌ 切换失败: {exc}")
+        return
+    name = res.get("name") or target.get("name") or "?"
+    d = " 🎬(Director 已启用)" if res.get("director_enabled") else ""
+    await update.effective_message.reply_text(f"✅ 已切换到 {name}{d}\n新对话已开始。")
+
+
+async def cmd_where(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        async with aiohttp.ClientSession() as session:
+            chars = await fetch_characters(session)
+    except Exception as exc:  # noqa: BLE001
+        await update.effective_message.reply_text(f"❌ 无法获取当前角色: {exc}")
+        return
+    active = next((c for c in chars if c.get("active")), None)
+    if active is None:
+        await update.effective_message.reply_text("⚠️ 当前没有活动角色（ST 可能处于 Assistant 模式）。")
+        return
+    name = active.get("name") or "?"
+    msgs = active.get("chat_messages", 0)
+    d = "🎬 Director：已启用" if active.get("director_enabled") else "🎬 Director：关闭"
+    await update.effective_message.reply_text(
+        f"📍 当前角色：{name}\n💬 当前会话消息数：{msgs}\n{d}")
 
 
 async def chat_handler(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -257,17 +408,13 @@ async def _generate_and_reply(update: Update, user_text: str) -> None:
     if not full_text:
         log.warning("full_text empty after streaming — sending fallback")
         full_text = "（空回复）"
-    # Telegram limit ~4096 chars; keep room for HTML escape expansion.
-    if len(full_text) > 4000:
-        full_text = full_text[:4000] + "\n…(已截断)"
-    try:
-        await placeholder.edit_text(full_text)
-    except Exception as exc:
-        log.warning(f"final edit_text failed: {exc}")
-        try:
-            await placeholder.edit_text(html.escape(full_text))
-        except Exception:
-            pass
+    # V2.3: reuse DM telegram_splitter — split long replies on natural
+    # boundaries and send sequential segments (first segment edits the
+    # streaming placeholder). No more 4000-char hard truncation.
+    diag = await telegram_splitter.send_long_message(
+        message=update.effective_message, text=full_text, first_message=placeholder)
+    log.info("send_long_message: segs=%s lens=%s exc=%s",
+             diag.get("segments"), diag.get("lengths"), diag.get("exceptions"))
 
 
 def main() -> None:
@@ -277,6 +424,9 @@ def main() -> None:
 
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("chars", cmd_chars))
+    app.add_handler(CommandHandler("use", cmd_use))
+    app.add_handler(CommandHandler("where", cmd_where))
     app.add_handler(CommandHandler("reset", cmd_reset))
     app.add_handler(CommandHandler("ping", cmd_ping))
     app.add_handler(CommandHandler("help", cmd_help))

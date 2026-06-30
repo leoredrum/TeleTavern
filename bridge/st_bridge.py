@@ -92,7 +92,7 @@ async def ws_handler(websocket) -> None:
             request_id = data.get("id")
             log.debug("WS recv type=%s id=%s", msg_type, request_id)
 
-            if msg_type in ("st_response", "st_stream"):
+            if msg_type in ("st_response", "st_stream", "list_characters_response"):
                 fut = _response_futures.get(request_id) if request_id else None
                 if fut is None:
                     log.debug("no waiter for id=%s (already finished?)", request_id)
@@ -176,6 +176,82 @@ async def handle_user_chat_completions(request: web.Request) -> web.Response:
     if is_stream:
         return await _stream_user_response(request, request_id)
     return await _blocking_user_response(request_id)
+
+
+# ---------- V2.3 multi-char: character list + switch (single-response WS roundtrip) ----------
+
+
+async def _await_single_response(request_id: str, timeout: float) -> dict | None:
+    """Send-a-WS-command / await-a-single-WS-response helper for non-streaming
+    control commands (list_characters / switch_character). The ST extension
+    replies with one frame (list_characters_response or st_response w/ command)."""
+    fut: asyncio.Future = asyncio.get_event_loop().create_future()
+    _response_futures[request_id] = fut
+    try:
+        return await asyncio.wait_for(fut, timeout=timeout)
+    except asyncio.TimeoutError:
+        return None
+    finally:
+        _response_futures.pop(request_id, None)
+
+
+async def handle_user_characters(_request: web.Request) -> web.Response:
+    """GET /v1/characters — ask the ST extension to enumerate loaded characters."""
+    if not _check_user_auth(_request):
+        return web.Response(status=401, text="Unauthorized")
+    request_id = str(uuid.uuid4())
+    if not await broadcast_to_st({"type": "list_characters", "id": request_id}):
+        return web.Response(status=503, text="No ST extension connected")
+    resp = await _await_single_response(request_id, SETTINGS["request_timeout_s"])
+    if resp is None:
+        return web.Response(status=504, text="timeout waiting for ST (list_characters)")
+    if resp.get("error"):
+        return web.json_response({"ok": False, "error": resp.get("error"), "characters": []}, status=502)
+    return web.json_response({
+        "characters": resp.get("characters", []),
+        "active": resp.get("active"),
+    })
+
+
+async def handle_user_select_character(request: web.Request) -> web.Response:
+    """POST /v1/select_character {avatar} — ask the ST extension to switch active char."""
+    if not _check_user_auth(request):
+        return web.Response(status=401, text="Unauthorized")
+    try:
+        body = await request.json()
+    except Exception:
+        return web.Response(status=400, text="invalid JSON body")
+    avatar = (body or {}).get("avatar")
+    if not avatar:
+        return web.Response(status=400, text="missing 'avatar'")
+    request_id = str(uuid.uuid4())
+    if not await broadcast_to_st({"type": "switch_character", "id": request_id, "avatar": avatar}):
+        return web.Response(status=503, text="No ST extension connected")
+    resp = await _await_single_response(request_id, SETTINGS["request_timeout_s"])
+    if resp is None:
+        return web.Response(status=504, text="timeout waiting for ST (switch_character)")
+    ok = bool(resp.get("ok"))
+    return web.json_response({
+        "ok": ok,
+        "active_character": resp.get("active_character"),
+        "name": resp.get("name"),
+        "director_enabled": resp.get("director_enabled"),
+        "error": resp.get("error"),
+    }, status=200 if ok else 400)
+
+
+async def handle_user_clear_chat(request: web.Request) -> web.Response:
+    """POST /v1/clear_chat — ask the ST extension to start a fresh chat for the active character."""
+    if not _check_user_auth(request):
+        return web.Response(status=401, text="Unauthorized")
+    request_id = str(uuid.uuid4())
+    if not await broadcast_to_st({"type": "clear_chat", "id": request_id}):
+        return web.Response(status=503, text="No ST extension connected")
+    resp = await _await_single_response(request_id, SETTINGS["request_timeout_s"])
+    if resp is None:
+        return web.Response(status=504, text="timeout waiting for ST (clear_chat)")
+    ok = bool(resp.get("ok"))
+    return web.json_response({"ok": ok, "error": resp.get("error")}, status=200 if ok else 400)
 
 
 async def _blocking_user_response(request_id: str) -> web.Response:
@@ -297,6 +373,9 @@ def build_app() -> web.Application:
     app.router.add_get("/v1/models", handle_user_models)
     app.router.add_get("/models", handle_user_models)
     app.router.add_post("/v1/chat/completions", handle_user_chat_completions)
+    app.router.add_get("/v1/characters", handle_user_characters)
+    app.router.add_post("/v1/select_character", handle_user_select_character)
+    app.router.add_post("/v1/clear_chat", handle_user_clear_chat)
     app.router.add_get("/healthz", lambda _r: web.json_response({"ok": True}))
     return app
 

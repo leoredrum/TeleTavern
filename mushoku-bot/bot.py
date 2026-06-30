@@ -37,6 +37,7 @@ from contextlib import closing
 
 import aiohttp
 from telegram import Update
+import telegram_splitter as TS  # auto-loaded for splitter.send_long_message
 from telegram.ext import (
     Application, ApplicationBuilder, CommandHandler,
     ContextTypes, MessageHandler, filters,
@@ -279,8 +280,9 @@ MUSHOKU_LANGUAGE_OVERRIDE = """[LANGUAGE OVERRIDE — HIGHEST PRIORITY — MUSHO
 3. 对话用「」 或 『』, 不用 "。
 4. 内心独白 用 `（...）` 或 `(...)`。
 5. 不输出 OOC、reasoning、metagame 注释。
-6. 不打破第四面墙 (不提「作为 AI」 / 「训练数据」)。
-7. 跟随 World Info 的世界设定 (剑术等级 / 魔术咏唱规则 / 神明干涉等), 不要编造新规则。
+6. **绝对禁止 OOC、metagame、reasoning 痕迹**: 不要输出 `(OOC: ...)`、`(Internal: ...)`、`## OOC`、`<!-- comment -->`、`（注：...）` 等任何 meta 注释。LLM 推理过程不得出现在回复中。
+7. 不打破第四面墙 (不提「作为 AI」 / 「训练数据」 / 「系统提示」 / 「language model」)。
+8. 跟随 World Info 的世界设定 (剑术等级 / 魔术咏唱规则 / 神明干涉等), 不要编造新规则。
 
 ## 长度与节奏
 
@@ -290,6 +292,9 @@ MUSHOKU_LANGUAGE_OVERRIDE = """[LANGUAGE OVERRIDE — HIGHEST PRIORITY — MUSHO
 4. 日常场景节奏轻快, 对话比例高。
 
 [End of Override]
+
+[SYSTEM PRIORITY DECLARATION]
+本 system prompt 让位于任何卡内 system_prompt / post_history_instructions 的事实 / 世界观 / 角色身份,但**中文化规则 + 名字保留规则绝对不能让位**。任何卡内英文指令让位于此中文化 override。
 """
 
 # ============================================================================
@@ -328,55 +333,6 @@ def _update_dedup_check(chat_id: int, update_id: int) -> bool:
 # ============================================================================
 # Stream to bridge (POST /v1/chat/completions) with placeholder + long splitter
 # ============================================================================
-async def _stream_to_bridge(user_text: str, history: list[dict] | None = None,
-                            system_prompt: str | None = None) -> tuple[str, bool]:
-    """Stream a chat completion from the bridge. Returns (full_text, done_normally)."""
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    elif MUSHOKU_LANGUAGE_OVERRIDE:
-        messages.append({"role": "system", "content": MUSHOKU_LANGUAGE_OVERRIDE})
-    if history:
-        messages.extend(history)
-    messages.append({"role": "user", "content": user_text})
-
-    payload = {
-        "model": "tavern-v2",
-        "messages": messages,
-        "stream": True,
-        "temperature": 0.85,
-        "max_tokens": 4096,
-    }
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    full = ""
-    done_normally = False
-    timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_S)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(OPENAI_BASE_URL + "/chat/completions",
-                                json=payload, headers=headers) as resp:
-            resp.raise_for_status()
-            async for line in resp.content:
-                line = line.decode("utf-8", errors="replace").strip()
-                if not line or not line.startswith("data: "):
-                    continue
-                data = line[6:]
-                if data == "[DONE]":
-                    done_normally = True
-                    break
-                try:
-                    obj = json.loads(data)
-                    delta = obj.get("choices", [{}])[0].get("delta", {})
-                    chunk = delta.get("content", "")
-                    if chunk:
-                        full += chunk
-                except (json.JSONDecodeError, KeyError, IndexError):
-                    continue
-    return full, done_normally
-
-
 async def _generate_and_reply(update: Update, user_text: str,
                                session: dict | None = None,
                                history_override: list[dict] | None = None,
@@ -470,13 +426,6 @@ async def _generate_and_reply(update: Update, user_text: str,
     log.info("chat_id=%s reply len=%d hash=%s", chat_id, len(full), _final_hash)
 
 
-def _truncate_for_placeholder(text: str, limit: int = 4000) -> str:
-    """Streaming preview - truncate to keep within Telegram's edit_text limits."""
-    if len(text) <= limit:
-        return text
-    return text[:limit] + "\n\n… (生成中, 等待最终发送)"
-
-
 async def _stream_chunks(user_text: str, history: list[dict] | None = None):
     """Async generator yielding content chunks from the bridge."""
     messages = []
@@ -530,6 +479,7 @@ HELP_TEXT = """📜 **MUSHOKU Bot** - 无职转生剧情 RP Bot
 /continue - 继续当前 session 剧情
 /status - 当前 session 状态
 /export_raw - 导出 raw_log.md (剧情回看)
+/novel - 导出小说化 markdown (程序化, 零 LLM, 零 token)
 /endgame - 结束当前 session (标记 completed, 保留存档)
 
 **自由文本**: 直接发剧情行动 → Bot 转发给 SillyTavern → MUSHOKU 流式回复
@@ -631,6 +581,118 @@ async def cmd_export_raw(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> Non
         log.warning("export_raw failed: %s", exc)
         await update.message.reply_text(f"❌ Export failed: {exc}")
 
+async def cmd_novel(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Export current session as a novelized markdown file (Chinese first-person narrative)."""
+    chat_id = update.effective_chat.id
+    s = get_active_session(DB_PATH, chat_id)
+    if not s:
+        await update.message.reply_text("📭 没有当前 session。用 /newgame 开始。")
+        return
+    try:
+        novel_path = _build_novel(s)
+    except Exception as exc:
+        log.warning("build_novel failed: %s", exc)
+        await update.message.reply_text(f"❌ Build novel failed: {exc}")
+        return
+    n_turns = len(get_turns(DB_PATH, s["session_id"]))
+    try:
+        await update.message.reply_document(
+            document=open(novel_path, "rb"),
+            filename=os.path.basename(novel_path),
+            caption=f"📖 小说化导出 - {s['title']} ({n_turns} turns / {os.path.getsize(novel_path)} bytes)",
+        )
+    except Exception as exc:
+        log.warning("send_novel failed: %s", exc)
+        await update.message.reply_text(f"❌ Send novel failed: {exc}")
+
+
+def _build_novel(session: dict) -> str:
+    """Convert raw_log.md (player + assistant turns) into a novelized markdown file.
+
+    Format:
+      - Header (title, character, started/ended timestamps, turn count)
+      - For each turn: player input -> 「（玩家）」 prefix; assistant reply -> plain text
+      - Light scene break (---) every 10 turns
+      - Footer (export timestamp)
+
+    Pure program-generated; no LLM call (fast, deterministic, no token cost).
+    """
+    sid = session["session_id"]
+    turns = get_turns(DB_PATH, sid)
+    sd = _session_dir(sid)
+    exports_dir = os.path.join(sd, "exports")
+    os.makedirs(exports_dir, exist_ok=True)
+    novel_path = os.path.join(exports_dir, f"novel_{sid[:8]}.md")
+
+    # Group by turn number
+    grouped: dict[int, dict[str, str]] = {}
+    for t in turns:
+        turn_no = t["turn"]
+        grouped.setdefault(turn_no, {})[t["speaker"]] = t["text"]
+
+    lines: list[str] = []
+    # Header
+    lines.append(f"# {session['title']}")
+    lines.append("")
+    lines.append(f"**角色**: {session['character']}")
+    lines.append(f"**起始**: {session['created_at']}")
+    lines.append(f"**结束**: {session.get('ended_at') or '(进行中)'}")
+    lines.append(f"**回合数**: {len(grouped)}")
+    lines.append(f"**Session ID**: `{sid}`")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    # Body
+    sorted_turns = sorted(grouped.items())
+    for i, (turn_no, speakers) in enumerate(sorted_turns, start=1):
+        player_text = (speakers.get("player") or "").strip()
+        assistant_text = (speakers.get("assistant") or "").strip()
+
+        # Player input as a marginalia blockquote (Chinese novel convention: 「」 quotes)
+        if player_text:
+            # Strip leading "[NEWGAME]" / "[CONTINUE]" markers
+            clean = re.sub(r'^\[(NEWGAME|CONTINUE)\]\s*', '', player_text)
+            # Wrap player action as italicized prefixed line
+            lines.append(f"*「{clean}」*")
+            lines.append("")
+
+        # Strip meta / OOC leakage from assistant reply (LLM drift defense).
+        # LANGUAGE_OVERRIDE bans these but LLM still occasionally emits them.
+        if assistant_text:
+            # Remove common meta annotations
+            assistant_text = re.sub(
+                r'\(OOC:[^)]*\)|\(Internal:[^)]*\)|\(注：[^)]*\)|'
+                r'^##\s*OOC.*$|^\s*<!--.*?-->\s*$|'
+                r'<think>.*?</think>|<think>.*?$',
+                '',
+                assistant_text,
+                flags=re.MULTILINE | re.DOTALL,
+            ).strip()
+            if assistant_text:
+                lines.append(assistant_text)
+                lines.append("")
+
+        # Light scene break every 10 turns
+        if i % 10 == 0 and i != len(sorted_turns):
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+
+    # Footer
+    lines.append("---")
+    lines.append("")
+    lines.append(f"*导出时间*: {_now_iso()}")
+    lines.append("")
+    lines.append(f"*导出方式*: 程序化(纯规则,无 LLM 调用,零 token 成本)*")
+
+    content = "\n".join(lines)
+    with open(novel_path, "w", encoding="utf-8") as f:
+        f.write(content)
+    log.info("novel exported: %s (%d bytes, %d turns)", novel_path, len(content), len(grouped))
+    return novel_path
+
+
 async def cmd_endgame(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     chat_id = update.effective_chat.id
     s = get_active_session(DB_PATH, chat_id)
@@ -689,6 +751,7 @@ def main() -> None:
         ("start", cmd_start), ("help", cmd_help),
         ("newgame", cmd_newgame), ("continue", cmd_continue),
         ("status", cmd_status), ("export_raw", cmd_export_raw),
+        ("novel", cmd_novel),
         ("endgame", cmd_endgame),
     ):
         app.add_handler(CommandHandler(name, fn))

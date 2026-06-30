@@ -23,7 +23,7 @@ from pathlib import Path
 
 import aiohttp
 from dotenv import load_dotenv
-from telegram import Update
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 
 # V2.3: reuse the DM long-message splitter (copied into this dir at deploy).
 # Handles >4096-char replies by splitting on natural boundaries and sending
@@ -33,6 +33,7 @@ from telegram.constants import ChatAction, ParseMode
 from telegram.ext import (
     Application,
     ApplicationBuilder,
+    CallbackQueryHandler,
     CommandHandler,
     ContextTypes,
     MessageHandler,
@@ -82,7 +83,7 @@ HELP_TEXT = (
     "🤖 *Telegram Tavern V2 (SillyTavern + Qwen3.6)*\n\n"
     "命令：\n"
     "  /start   — 重置当前对话（开新 ST 聊天）\n"
-    "  /chars   — 列出所有角色（⭐当前 🎬Director）\n"
+    "  /character — 列出角色并点击按钮切换（⭐当前 🎬Director）\n"
     "  /use <名称> — 切换角色（如 /use Penelope3），切换即开新对话\n"
     "  /where   — 查看当前角色 / 消息数 / Director 状态\n"
     "  /reset   — 清空当前角色对话（开新聊天，保留历史文件）\n"
@@ -229,21 +230,57 @@ async def clear_active_chat(session: aiohttp.ClientSession) -> dict:
         return data
 
 
-async def cmd_chars(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+async def cmd_character(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+    # TeleTervan (2026-06-30): list cards WITHOUT a world book (the extension
+    # already filters) as an inline keyboard — one button per card, tap to
+    # switch. callback_data "switch:<avatar>" is handled by on_switch_callback.
     try:
         async with aiohttp.ClientSession() as session:
             chars = await fetch_characters(session)
     except Exception as exc:  # noqa: BLE001
         await update.effective_message.reply_text(f"❌ 无法获取角色列表: {exc}")
         return
-    lines = []
+    if not chars:
+        await update.effective_message.reply_text("🎭 暂无可用角色（已过滤掉带世界书的卡）。")
+        return
+    keyboard = []
     for c in chars:
-        mark = "⭐" if c.get("active") else "　"
-        d = " 🎬" if c.get("director_enabled") else ""
-        nm = c.get("name") or c.get("avatar") or "?"
-        lines.append(f"{mark} {nm}{d}")
-    head = f"🎭 角色（共 {len(chars)} 个，⭐=当前 🎬=Director）：\n\n"
-    await update.effective_message.reply_text(head + ("\n".join(lines) if lines else "（无）"))
+        nm = c.get("display_name") or c.get("name") or c.get("avatar") or "?"
+        mark = "⭐ " if c.get("active") else ""
+        keyboard.append([InlineKeyboardButton(
+            text=f"{mark}{nm}",
+            callback_data=f"switch:{c.get('avatar')}",
+        )])
+    head = f"🎭 选择角色（共 {len(chars)} 个，⭐=当前，点击切换）："
+    await update.effective_message.reply_text(head, reply_markup=InlineKeyboardMarkup(keyboard))
+
+
+async def on_switch_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
+    # TeleTervan (2026-06-30): tap a /character button → switch_character via
+    # bridge + confirm in place (clears the keyboard). callback_data starts
+    # with "switch:".
+    query = update.callback_query
+    if not query:
+        return
+    await query.answer()
+    data = query.data or ""
+    if not data.startswith("switch:"):
+        return
+    avatar = data[len("switch:"):]
+    if not avatar:
+        await query.edit_message_text("❌ 切换失败：无效的角色。")
+        return
+    try:
+        async with aiohttp.ClientSession() as session:
+            chars = await fetch_characters(session)
+            target = next((c for c in chars if c.get("avatar") == avatar), None)
+            res = await select_character(session, avatar)
+    except Exception as exc:  # noqa: BLE001
+        await query.edit_message_text(f"❌ 切换失败: {exc}")
+        return
+    name = (target and (target.get("display_name") or target.get("name"))) or res.get("name") or avatar
+    d = " 🎬(Director 已启用)" if res.get("director_enabled") else ""
+    await query.edit_message_text(f"✅ 已切换到 {name}{d}\n新对话已开始，发消息开始聊天。")
 
 
 async def cmd_use(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -424,12 +461,14 @@ def main() -> None:
 
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CommandHandler("chars", cmd_chars))
+    app.add_handler(CommandHandler("character", cmd_character))
+    app.add_handler(CommandHandler("chars", cmd_character))  # backward-compat alias
     app.add_handler(CommandHandler("use", cmd_use))
     app.add_handler(CommandHandler("where", cmd_where))
     app.add_handler(CommandHandler("reset", cmd_reset))
     app.add_handler(CommandHandler("ping", cmd_ping))
     app.add_handler(CommandHandler("help", cmd_help))
+    app.add_handler(CallbackQueryHandler(on_switch_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_handler))
 
     log.info("V2 bot starting; bridge=%s", OPENAI_BASE_URL)

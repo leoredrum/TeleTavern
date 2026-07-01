@@ -2,7 +2,7 @@
 """
 MUSHOKU Bot - Telegram Narrative RP Bot (Mushoku Tensei / Boku-no-Isekai).
 
-Fifth Telegram bot, FULLY ISOLATED from Penelope / June / Aqua / DungeonMaster.
+Scenario Telegram bot example, fully isolated from other bot stacks.
 Talks to the MUSHOKU-dedicated bridge (:8017) which fronts an isolated
 SillyTavern instance (:8015) whose active_character = Boku-no-Isekai-
 Jobless-Reincarnation-aicharactercards.com_-2.png (46-entry character_book,
@@ -127,11 +127,13 @@ def _abs(rel_or_abs: str) -> str:
 # Card path locator + lazy load (L1 fallback helpers)
 # ============================================================================
 def _card_png_path():
-    """Locate the Boku-no-Isekai card PNG inside mushoku-data/default-user/characters/."""
+    """Locate the scenario card PNG used by the local L1 fallback path."""
+    configured = os.environ.get("CHARACTER_CARD_PATH") or os.environ.get("MUSHOKU_CARD_PATH")
+    if configured:
+        return _abs(configured)
     candidates = [
         os.path.join(_BOT_DIR, "..", "..", "mushoku-data", "default-user", "characters",
                      "Boku-no-Isekai-Jobless-Reincarnation-aicharactercards.com_-2.png"),
-        "/Users/leo/Documents/SillyTavern/mushoku-data/default-user/characters/Boku-no-Isekai-Jobless-Reincarnation-aicharactercards.com_-2.png",
     ]
     for c in candidates:
         if os.path.exists(c):
@@ -431,7 +433,8 @@ def _update_dedup_check(chat_id: int, update_id: int) -> bool:
 # Stream to bridge (POST /v1/chat/completions) with placeholder + long splitter
 # ============================================================================
 async def _generate_and_reply(update, user_text, session=None,
-                               history_override=None, log_player_text=None):
+                               history_override=None, log_player_text=None,
+                               skip_update_dedup: bool = False):
     """Common reply logic. Try bridge; on failure fall back to L1 ollama.
 
     Ordering:
@@ -445,7 +448,7 @@ async def _generate_and_reply(update, user_text, session=None,
     log.info("handler_enter chat_id=%s update_id=%s text_len=%d",
              chat_id, update_id, len(user_text))
 
-    if _update_dedup_check(chat_id, update_id):
+    if not skip_update_dedup and _update_dedup_check(chat_id, update_id):
         log.info("update_duplicate_suppressed chat_id=%s update_id=%s", chat_id, update_id)
         return
 
@@ -601,14 +604,14 @@ HELP_TEXT = """📜 **MUSHOKU Bot** - 无职转生剧情 RP Bot
 **输出**: 简体中文 + 日文人名保留原拼写 (ルーデウス / エルメス / ヒルダ / ...)
 
 **Bot 隔离**: MUSHOKU 是独立 ST 实例 (:8015) + 独立 bridge (:8017/:8016),
-不影响 Penelope / June / Aqua / DungeonMaster。
+不影响其他 bot stack。
 
 **稳定性 (Stage 6)**: 当 ST bridge 不通时, bot 自动 fallback 到 V2 Ollama proxy
 直连,确保 100% 收到中文回复 (无 ST WS race 卡死)。
 """
 
 async def cmd_start(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if not _update_dedup_check(update.effective_chat.id, update.update_id):
+    if _update_dedup_check(update.effective_chat.id, update.update_id):
         await update.message.reply_text(
             "🎲 MUSHOKU Bot 已上线。\n\n"
             "当前角色: Boku no Isekai Jobless Reincarnation\n"
@@ -621,8 +624,9 @@ async def cmd_help(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(HELP_TEXT, parse_mode="Markdown")
 
 async def cmd_newgame(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    log.info("cmd_newgame received chat_id=%s update_id=%s message_id=%s", update.effective_chat.id if update.effective_chat else None, update.update_id, update.effective_message.message_id if update.effective_message else None)
     chat_id = update.effective_chat.id
-    if not _update_dedup_check(chat_id, update.update_id):
+    if _update_dedup_check(chat_id, update.update_id):
         return
     archived = archive_active_sessions(DB_PATH, chat_id)
     session = create_session(DB_PATH, chat_id, title="Mushoku Tensei - new story")
@@ -642,6 +646,7 @@ async def cmd_newgame(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         user_text="[NEWGAME: 玩家开始新剧情。请以简体中文完成开场白 —— 角色视角第一人称描写当前场景,日文人名/剑术/大陆名保留原拼写(用「」包裹),正文严禁英文。描述包含:角色当前处境、周围环境、所处地点、季节/时辰。如有同伴可引入在场 NPC。直接开场,不要 meta 注释。]",
         session=session,
         log_player_text="[NEWGAME]",
+        skip_update_dedup=True,
     )
 
 async def cmd_continue(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:

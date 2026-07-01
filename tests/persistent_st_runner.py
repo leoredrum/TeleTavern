@@ -29,8 +29,43 @@ ST_URL = os.environ.get("ST_URL", "http://127.0.0.1:8000")
 ST_HEALTH_TIMEOUT_S = 30
 WS_STATUS_QUERY = """
 async () => {
-    const el = document.querySelector('#chatbridge_ws_status');
+    const el = document.querySelector('#ws_status') || document.querySelector('#chatbridge_ws_status');
     return el ? (el.textContent || '').trim() : 'no-element';
+}
+"""
+ST_BRIDGE_WS_URL = os.environ.get("ST_BRIDGE_WS_URL", "ws://127.0.0.1:8001")
+
+def _bridge_host_port() -> tuple[str, str]:
+    raw = ST_BRIDGE_WS_URL.replace("wss://", "").replace("ws://", "")
+    host_port = raw.split("/", 1)[0]
+    if ":" in host_port:
+        host, port = host_port.rsplit(":", 1)
+    else:
+        host, port = host_port, "8001"
+    return host or "127.0.0.1", port or "8001"
+
+WS_HOST, WS_PORT = _bridge_host_port()
+WS_CONFIGURE_AND_CONNECT = """
+async (cfg) => {
+    const status = document.querySelector('#ws_status') || document.querySelector('#chatbridge_ws_status');
+    const urlInput = document.querySelector('#ws_url');
+    const portInput = document.querySelector('#ws_port');
+    const connectButton = document.querySelector('#ws_connect') || document.querySelector('#chatbridge_ws_connect');
+    if (!urlInput || !portInput || !connectButton || !status) {
+        return 'no-elements';
+    }
+    if (urlInput.value !== cfg.host) {
+        urlInput.value = cfg.host;
+        urlInput.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if (String(portInput.value) !== String(cfg.port)) {
+        portInput.value = String(cfg.port);
+        portInput.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    if ((status.textContent || '').trim() !== '已连接' && !connectButton.disabled) {
+        connectButton.click();
+    }
+    return (status.textContent || '').trim();
 }
 """
 HERE = Path(__file__).resolve().parent.parent
@@ -118,6 +153,10 @@ async def main() -> int:
                     if stop_event.is_set():
                         break
                     try:
+                        await asyncio.wait_for(
+                            page.evaluate(WS_CONFIGURE_AND_CONNECT, {"host": WS_HOST, "port": WS_PORT}),
+                            timeout=5,
+                        )
                         status = await asyncio.wait_for(
                             page.evaluate(WS_STATUS_QUERY), timeout=5
                         )

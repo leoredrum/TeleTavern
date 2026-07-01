@@ -6,9 +6,10 @@ set -e
 export ST_URL=http://127.0.0.1:8015
 export ST_RUNNER_PROFILE="$HOME/.st-runner-mushoku-profile"
 export ST_BRIDGE_WS_URL=ws://127.0.0.1:8016
+export ST_RUNNER_PID_FILE=logs/mushoku-st-runner.pid
 cd "$(dirname "$0")/.."
 mkdir -p logs
-nohup /opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/bin/python3 \
+nohup ./venv/bin/python \
     tests/dm_st_runner.py \
     > logs/mushoku-st-runner.log 2>&1 &
 echo $! > logs/mushoku-st-runner.pid

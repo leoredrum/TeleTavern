@@ -8,7 +8,7 @@ set -a
 . ./.env
 set +a
 mkdir -p logs
-nohup /opt/homebrew/Cellar/python@3.14/3.14.3_1/Frameworks/Python.framework/Versions/3.14/bin/python3 \
+nohup ../venv/bin/python \
     bot.py \
     > logs/mushoku-bot.log 2>&1 &
 echo $! > logs/mushoku-bot.pid

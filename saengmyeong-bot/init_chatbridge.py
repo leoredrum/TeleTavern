@@ -4,7 +4,7 @@ SAENGMYEONG ST init + ChatBridge activate (one-shot).
 
 Bring up SillyTavern :8020 WebUI in headless Chromium, wait for ChatBridge
 extension to fully initialize (its WS reaches "已连接" state), then OVERRIDE
-the default-settings (which would otherwise point at Penelope / wsPort=8001)
+the default settings (which may point at another local bot stack / wsPort)
 by injecting per-user settings via the **ST frontend API** + `saveSettings()`.
 
 This is the only way to make the override *survive* future debounced
@@ -15,8 +15,7 @@ drops anything else).
 Safe to re-run; it's idempotent.
 
 Run:
-    /Users/leo/Documents/SillyTavern/connector/venv/bin/python \
-        /Users/leo/Documents/SillyTavern/connector/saengmyeong-bot/init_chatbridge.py
+    ../venv/bin/python init_chatbridge.py
 """
 from __future__ import annotations
 import asyncio
@@ -31,7 +30,10 @@ ST_URL = os.environ.get("ST_URL", "http://127.0.0.1:8020")
 USER_DATA = Path.home() / ".st-runner-saengmyeong-profile"
 EXPECTED_AVATAR = "Blessed-Are-The-Fruitful-aicharactercards.com_.png"
 TARGET_WS_PORT = "8021"
-SETTINGS_FILE = "/Users/leo/Documents/SillyTavern/saengmyeong-data/default-user/settings.json"
+SETTINGS_FILE = os.environ.get(
+    "ST_SETTINGS_FILE",
+    str(Path.cwd().parent.parent / "saengmyeong-data" / "default-user" / "settings.json"),
+)
 
 
 INJECT_JS = r"""

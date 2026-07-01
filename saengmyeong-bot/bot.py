@@ -2,7 +2,7 @@
 """
 SAENGMYEONG Bot - Telegram Cult-RP Bot (Saengmyeong-gyo / 생명교 / 神圣生命教).
 
-Sixth Telegram bot, FULLY ISOLATED from Penelope / June / Aqua / DungeonMaster / MUSHOKU.
+Scenario Telegram bot example, fully isolated from other bot stacks.
 Talks to the SAENGMYEONG-dedicated bridge (:8022) which fronts an isolated
 SillyTavern instance (:8020) whose active_character = Blessed-Are-The-Fruitful-
 aicharactercards.com_.png (57-entry character_book, auto-activated).
@@ -120,12 +120,13 @@ def _abs(rel_or_abs: str) -> str:
     return os.path.abspath(p)
 
 def _card_png_path() -> str:
-    """Locate the Blessed card PNG inside the saengmyeong-data characters dir."""
-    # Bot lives at connector/saengmyeong-bot/. Card lives at saengmyeong-data/default-user/characters/
+    """Locate the scenario card PNG used by the local L1 fallback path."""
+    configured = os.environ.get("CHARACTER_CARD_PATH") or os.environ.get("SAENGMYEONG_CARD_PATH")
+    if configured:
+        return _abs(configured)
     candidates = [
         os.path.join(_bot_dir(), "..", "..", "saengmyeong-data", "default-user", "characters",
                      "Blessed-Are-The-Fruitful-aicharactercards.com_.png"),
-        "/Users/leo/Documents/SillyTavern/saengmyeong-data/default-user/characters/Blessed-Are-The-Fruitful-aicharactercards.com_.png",
     ]
     for c in candidates:
         if os.path.exists(c):
@@ -554,7 +555,8 @@ async def _bridge_probe_quick() -> bool:
 async def _generate_and_reply(update: Update, user_text: str,
                                session: dict | None = None,
                                history_override: list[dict] | None = None,
-                               log_player_text: str | None = None) -> None:
+                               log_player_text: str | None = None,
+                               skip_update_dedup: bool = False) -> None:
     """Common reply logic. Try bridge; on failure fall back to L1 ollama.
 
     Ordering:
@@ -568,7 +570,7 @@ async def _generate_and_reply(update: Update, user_text: str,
     log.info("handler_enter chat_id=%s update_id=%s text_len=%d",
              chat_id, update_id, len(user_text))
 
-    if _update_dedup_check(chat_id, update_id):
+    if not skip_update_dedup and _update_dedup_check(chat_id, update_id):
         log.info("update_duplicate_suppressed chat_id=%s update_id=%s", chat_id, update_id)
         return
 
@@ -681,14 +683,14 @@ HELP_TEXT = """📜 **SAENGMYEONG Bot** - 圣生 Cult-RP Bot
 **风格**: 直白描写不 euphemize(角色卡明文要求) / 不正能量化 cult
 
 **Bot 隔离**: SAENGMYEONG 是独立 ST 实例 (:8020) + 独立 bridge (:8022/:8021),
-不影响 Penelope / June / Aqua / DungeonMaster / MUSHOKU。
+不影响其他 bot stack。
 
 **稳定性 (Stage 5)**: 当 ST bridge 不通时,bot 自动 fallback 到 V2 Ollama proxy
 直连,确保 100% 收到中文回复。
 """
 
 async def cmd_start(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
-    if not _update_dedup_check(update.effective_chat.id, update.update_id):
+    if _update_dedup_check(update.effective_chat.id, update.update_id):
         await update.message.reply_text(
             "🌙 SAENGMYEONG (圣生) Bot 已上线。\n\n"
             "当前角色: Blessed Are The Fruitful\n"
@@ -702,8 +704,9 @@ async def cmd_help(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(HELP_TEXT, parse_mode="Markdown")
 
 async def cmd_newgame(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    log.info("cmd_newgame received chat_id=%s update_id=%s message_id=%s", update.effective_chat.id if update.effective_chat else None, update.update_id, update.effective_message.message_id if update.effective_message else None)
     chat_id = update.effective_chat.id
-    if not _update_dedup_check(chat_id, update.update_id):
+    if _update_dedup_check(chat_id, update.update_id):
         return
     archived = archive_active_sessions(DB_PATH, chat_id)
     session = create_session(DB_PATH, chat_id, title="Saengmyeong Cult - new story")
@@ -712,15 +715,16 @@ async def cmd_newgame(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         head + "角色卡: Blessed Are The Fruitful\n"
         "Character Book: [Blessed Are The Fruitful] - Complete Lorebook (57 entries)\n"
-        "语言: 简体中文 + 第二人称 perspective + 韩文人名保留罗马音\n"
+        "语言: 简体中文 + 第二人称视角 + 人名/地名/教派名全部中文化\n"
         "风格: 直白不 euphemize / 不正能量化 cult\n\n"
         "正在加载开场白...",
     )
     await _generate_and_reply(
         update,
-        user_text="[NEWGAME: 玩家开始新剧情, 请从 first_mes 开始]",
+        user_text="[NEWGAME: 玩家开始新剧情。请用简体中文开场；人名、地名、教派名必须全部使用中文译名（生命教、林东旭、尹素熙、徐润雅、首尔、江南、生命教总本山等），禁止输出罗马音、英文或韩文。请从角色卡 first_mes 的场景开始，但输出必须中文化。]",
         session=session,
         log_player_text="[NEWGAME]",
+        skip_update_dedup=True,
     )
 
 async def cmd_continue(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:

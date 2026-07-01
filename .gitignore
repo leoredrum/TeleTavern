@@ -19,15 +19,25 @@ venv/
 # Runtime state
 logs/*.log
 logs/*.pid
+logs/
 data/*.db
 data/*.db-journal
 data/*.db-wal
 data/*.db-shm
+data/
+*-data/
+Archive/
+backups/
 
 # Tests
 tests/screenshots/
 tests/headless.*
 tests/.pytest_cache/
+tests/st_*diag*.py
+tests/st_*force*.py
+tests/v8_*.py
+tests/*nsfw*.py
+tests/*penelope*.py
 
 # IDE / OS
 .DS_Store
@@ -37,7 +47,6 @@ tests/.pytest_cache/
 # Build artifacts
 *.tgz
 backups/.env
-logs/
 *.log
 *.db
 *.db-journal
@@ -49,6 +58,12 @@ data/
 session/
 tmp/
 chatbridge/
+*.png
+*.webp
+*.jpg
+*.jpeg
+*.gif
+*.jsonl
 
 # DM game session logs (never commit real RP content)
 dungeon-master-bot/sessions/

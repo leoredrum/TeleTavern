@@ -27,7 +27,7 @@ if ! "$HERE/venv/bin/playwright" install --dry-run chromium 2>&1 | grep -q "is i
     "$HERE/venv/bin/playwright" install chromium 2>&1 | tail -3
 fi
 
-nohup ./venv/bin/python tests/persistent_st_runner.py >> "$LOG_FILE" 2>&1 &
+ST_BRIDGE_WS_URL=ws://127.0.0.1:8001 nohup ./venv/bin/python tests/persistent_st_runner.py >> "$LOG_FILE" 2>&1 &
 echo $! > "$PID_FILE"
 PID=$(cat "$PID_FILE")
 echo "st-runner started PID $PID; logs at $LOG_FILE"

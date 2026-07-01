@@ -2,13 +2,15 @@
 # Start SAENGMYEONG bot (圣生) process.
 # Reads .env (mode 600, gitignored).
 set -e
-BOT_DIR="$(dirname "$0")/../saengmyeong-bot"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+BOT_DIR="$ROOT/saengmyeong-bot"
+PYTHON_BIN="${PYTHON_BIN:-$ROOT/venv/bin/python}"
 cd "$BOT_DIR"
 set -a
 . ./.env
 set +a
 mkdir -p logs
-nohup /Users/leo/Documents/SillyTavern/connector/venv/bin/python \
+nohup "$PYTHON_BIN" \
     bot.py \
     > logs/saengmyeong-bot.log 2>&1 &
 echo $! > logs/saengmyeong-bot.pid

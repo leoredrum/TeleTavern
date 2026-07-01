@@ -163,6 +163,72 @@ async def cmd_help(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
 # ---------- V2.3 multi-char: character list / switch / where ----------
 
 
+
+CHARACTER_MENU_LABELS = {
+    "Abby - Your Daughter's Friend.png": ("艾比", "女儿的朋友，青春敏感的熟人关系"),
+    "Abby - Your Wife is a Lesbian Pornstar.png": ("艾比", "成熟女演员，婚姻与秘密纠葛"),
+    "Aoi - Mystery Romance.png": ("葵", "悬疑恋爱，冷静神秘的现代女性"),
+    "Aurelias Edge.png": ("奥蕾莉亚健身馆", "高端健身工作室与训练氛围"),
+    "Charlie Moonwhisper.png": ("查莉·月语", "召唤者关系，带奇幻契约感"),
+    "Chloe - Property of the mean girl.png": ("克洛伊", "校园强势女孩与权力关系"),
+    "ChronoKeeper-Cherry.png": ("樱桃时计官", "时间管理与叙事控制工具"),
+    "Clara -  Your Girlfriend Wants to Watch You with Other Women.png": ("克拉拉", "安静的女友，关系边界测试"),
+    "Clara-Your-Girlfriend-Wants-to-Watch-You-with-Other-Women-aicharactercards.com_.png": ("克拉拉", "安静的女友，关系边界测试"),
+    "Corin-Wickes-Your-personal-Maid-aicharactercards.com_.png": ("科林·威克斯", "私人女仆，娇小而忠诚"),
+    "Diana-Game-Master-aicharactercards.com_-1.png": ("黛安娜", "宇宙女神型游戏主持人"),
+    "Emi, the Tsundere Forced into Fashion Photoshoots.png": ("田中绘美", "傲娇好友，时尚拍摄事件"),
+    "Free Use World.png": ("自由使用世界", "法律设定驱动的开放世界"),
+    "Kira -  The Abandoned Android Maid.png": ("绮拉", "被遗弃的家政仿生女仆"),
+    "Lily-Your-Stepstister-caught-you-masturbating-aicharactercards.com_.png": ("莉莉", "继妹，尴尬事件后的同居张力"),
+    "Melissa-aicharactercards.com_.png": ("梅丽莎", "外表保守的大学生"),
+    "Narrator.png": ("旁白", "中立叙事者，适合世界推进"),
+    "Nikki's diary of torments.png": ("妮基日记", "约会模拟与校园压迫剧情"),
+    "Omni-Tower Management System & Residents.png": ("全域塔管理系统", "建筑 AI 与住户群像"),
+    "Princess-Aazka-of-Dalvasca-aicharactercards.com_.png": ("达尔瓦斯卡公主阿兹卡", "异国公主，权力与宫廷冒险"),
+    "Red.png": ("红", "龙裔角色，奇幻体质与冲突"),
+    "Sam Harper.png": ("山姆·哈珀", "阳光感的现代熟人角色"),
+    "Sarah and Stella - Your Mother's Twin Moves In.png": ("莎拉与斯黛拉", "母亲的双胞胎姐妹搬来同住"),
+    "She Was Everyones Favorite. Now Shes Yours to Deal With.png": ("克洛伊·斯特林", "昔日万人迷，如今需要你处理"),
+    "Sophia - The Audition.png": ("索菲娅", "艺术学生，试镜场景"),
+    "The Bells Farm.png": ("贝尔农场", "1950 年代农场设定"),
+    "The Chronicles of Cyraeth.png": ("赛瑞斯编年史", "成熟向中世纪高奇幻世界"),
+    "Wise wolf Holo to Glory.png": ("赫萝", "贤狼女神，智慧与旅途"),
+    "Yamamoto Aiko.png": ("山本爱子", "高中生，日常关系向"),
+    "Zoe-Your-Sister-Became-a-Nudist-aicharactercards.com_.png": ("佐伊", "姐姐/妹妹家庭日常冲突"),
+    "aicc-2025-07-24_A-Narrated-Life.png": ("你是旁白：雪纪的人生", "你作为她听得见的旁白声音，实时干预她的日常与命运"),
+    "aicc-2025-07-24_June_.png": ("琼", "红发红眼的强势角色"),
+    "aicc-2026-06-15_Penelope3.png": ("佩内洛普", "Director 启用，主线推荐角色"),
+}
+
+
+def character_menu_label(c: dict) -> tuple[str, str]:
+    avatar = c.get("avatar") or ""
+    if avatar in CHARACTER_MENU_LABELS:
+        return CHARACTER_MENU_LABELS[avatar]
+    raw = (c.get("display_name") or c.get("name") or avatar or "未命名角色").strip()
+    desc = (c.get("description") or "").replace("\r", " ").replace("\n", " ").strip()
+    if len(desc) > 28:
+        desc = desc[:28].rstrip() + "..."
+    return raw, desc or "暂无简介"
+
+
+def character_menu_items(chars: list[dict]) -> list[dict]:
+    """Return menu-visible characters with Chinese labels and exact duplicates removed."""
+    items = []
+    seen = set()
+    for c in chars:
+        name, intro = character_menu_label(c)
+        desc_key = ((c.get("description") or "").strip()[:220]).lower()
+        key = ((c.get("name") or name).strip().lower(), desc_key)
+        if key in seen:
+            continue
+        seen.add(key)
+        cc = dict(c)
+        cc["menu_name"] = name
+        cc["menu_intro"] = intro
+        items.append(cc)
+    return items
+
 def match_character(characters: list[dict], query: str) -> dict | None:
     """Find a character by exact name → case-insensitive name → avatar → substring.
 
@@ -240,18 +306,23 @@ async def cmd_character(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> 
     except Exception as exc:  # noqa: BLE001
         await update.effective_message.reply_text(f"❌ 无法获取角色列表: {exc}")
         return
+    chars = character_menu_items(chars)
     if not chars:
         await update.effective_message.reply_text("🎭 暂无可用角色（已过滤掉带世界书的卡）。")
         return
     keyboard = []
-    for c in chars:
-        nm = c.get("display_name") or c.get("name") or c.get("avatar") or "?"
+    lines = []
+    for idx, c in enumerate(chars):
+        nm = c.get("menu_name") or c.get("display_name") or c.get("name") or c.get("avatar") or "?"
+        intro = c.get("menu_intro") or "暂无简介"
         mark = "⭐ " if c.get("active") else ""
+        director = " 🎬" if c.get("director_enabled") else ""
+        button_text = f"{idx + 1}. {mark}{nm}{director}｜{intro}"
         keyboard.append([InlineKeyboardButton(
-            text=f"{mark}{nm}",
-            callback_data=f"switch:{c.get('avatar')}",
+            text=button_text[:96],
+            callback_data=f"switchidx:{idx}",
         )])
-    head = f"🎭 选择角色（共 {len(chars)} 个，⭐=当前，点击切换）："
+    head = f"🎭 选择角色（共 {len(chars)} 个，⭐=当前，🎬=Director）："
     await update.effective_message.reply_text(head, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
@@ -264,21 +335,29 @@ async def on_switch_callback(update: Update, _context: ContextTypes.DEFAULT_TYPE
         return
     await query.answer()
     data = query.data or ""
-    if not data.startswith("switch:"):
+    if not data.startswith("switchidx:"):
         return
-    avatar = data[len("switch:"):]
-    if not avatar:
-        await query.edit_message_text("❌ 切换失败：无效的角色。")
+    try:
+        idx = int(data[len("switchidx:"):])
+    except ValueError:
+        await query.edit_message_text("❌ 切换失败：无效的角色索引。")
         return
     try:
         async with aiohttp.ClientSession() as session:
-            chars = await fetch_characters(session)
-            target = next((c for c in chars if c.get("avatar") == avatar), None)
+            chars = character_menu_items(await fetch_characters(session))
+            if idx < 0 or idx >= len(chars):
+                await query.edit_message_text("❌ 切换失败：角色列表已变化，请重新发送 /character。")
+                return
+            target = chars[idx]
+            avatar = target.get("avatar") or ""
+            if not avatar:
+                await query.edit_message_text("❌ 切换失败：角色卡缺少 avatar。")
+                return
             res = await select_character(session, avatar)
     except Exception as exc:  # noqa: BLE001
         await query.edit_message_text(f"❌ 切换失败: {exc}")
         return
-    name = (target and (target.get("display_name") or target.get("name"))) or res.get("name") or avatar
+    name = (target and (target.get("menu_name") or target.get("display_name") or target.get("name"))) or res.get("name") or avatar
     d = " 🎬(Director 已启用)" if res.get("director_enabled") else ""
     await query.edit_message_text(f"✅ 已切换到 {name}{d}\n新对话已开始，发消息开始聊天。")
 
@@ -461,6 +540,7 @@ def main() -> None:
 
     app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("newgame", cmd_start))  # Chinese UX alias: start a fresh chat
     app.add_handler(CommandHandler("character", cmd_character))
     app.add_handler(CommandHandler("chars", cmd_character))  # backward-compat alias
     app.add_handler(CommandHandler("use", cmd_use))

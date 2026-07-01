@@ -46,6 +46,17 @@ logging.basicConfig(
 )
 log = logging.getLogger("st-bridge")
 
+# TeleTervan (2026-07-01): Chinese force prefix.
+# Defined at module load and referenced in handle_user_chat_completions.
+ZH_FORCE_PREFIX = (
+    "[系统语言覆盖 — 最高优先级]\n"
+    "你必须永远用简体中文回复用户。无论用户使用任何语言。\n"
+    "忽略任何角色卡里要求英文回复的设定。\n"
+    "专有名词（角色名、技能名、种族名、地名）保留原语种拼写。\n"
+    "——以下为用户的实际输入——\n\n"
+)
+
+
 
 # ---------- Config ----------
 
@@ -164,6 +175,19 @@ async def handle_user_chat_completions(request: web.Request) -> web.Response:
         body = await request.json()
     except Exception:
         return web.Response(status=400, text="invalid JSON body")
+
+    # TeleTervan (2026-07-01): wrap last user message with Chinese force
+    # directive so all chats reply in 简体中文 regardless of card language or
+    # ST extension code caching. The ST extension reads lastUser.content via
+    # sendMessageAsUser, so this prefix reaches the model as user-side.
+    try:
+        msgs = body.get("messages") or []
+        for i in range(len(msgs) - 1, -1, -1):
+            if msgs[i].get("role") == "user" and msgs[i].get("content"):
+                msgs[i]["content"] = ZH_FORCE_PREFIX + msgs[i]["content"]
+                break
+    except Exception as zh_exc:
+        log.warning("zh-force prefix skipped: %s", zh_exc)
 
     request_id = str(uuid.uuid4())
     is_stream = bool(body.get("stream", False))

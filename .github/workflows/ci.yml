@@ -75,19 +75,18 @@ jobs:
       - name: Validate JSON config files
         run: |
           set -euo pipefail
-          # All tracked JSON files must parse. Note: `git ls-files '*.json'`
-          # can return empty if no JSON files are tracked; guard with `|| true`
-          # so pipefail doesn't trip on the empty-result case.
+          # All tracked JSON files must parse. Guard every pipeline stage
+          # with `|| true` so empty outputs don't trip pipefail.
+          json_files=$(git ls-files '*.json' 2>/dev/null | { grep -vE '^(venv|\.venv|node_modules)/' || true; } | { grep -v '^$' || true; })
+          if [ -z "$json_files" ]; then
+            echo "No tracked JSON files to validate"
+            exit 0
+          fi
           count=0
-          git ls-files '*.json' \
-            | grep -vE '^(venv|\.venv|node_modules)/' \
-            | { grep -v '^$' || true; } \
-            | while read -r f; do
-                if [ -n "$f" ]; then
-                  python -c "import json; json.load(open('$f'))" && echo "OK: $f"
-                  count=$((count + 1))
-                fi
-              done
+          for f in $json_files; do
+            python -c "import json; json.load(open('$f'))" && echo "OK: $f"
+            count=$((count + 1))
+          done
           echo "Validated $count JSON files"
 
       - name: Validate YAML files

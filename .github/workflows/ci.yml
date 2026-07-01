@@ -9,19 +9,19 @@ on:
 jobs:
   smoke:
     name: Smoke (syntax + import)
-    runs-on: macos-14  # Qwen3.6-A3B path assumes Apple Silicon; keep macOS for parity
+    runs-on: ubuntu-latest
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
-          python-version: "3.14"
+          python-version: "3.12"
 
       - name: Cache pip
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
@@ -75,29 +75,40 @@ jobs:
       - name: Validate JSON config files
         run: |
           set -euo pipefail
-          # All tracked JSON files must parse
+          # All tracked JSON files must parse. Note: `git ls-files '*.json'`
+          # can return empty if no JSON files are tracked; guard with `|| true`
+          # so pipefail doesn't trip on the empty-result case.
+          count=0
           git ls-files '*.json' \
             | grep -vE '^(venv|\.venv|node_modules)/' \
+            | { grep -v '^$' || true; } \
             | while read -r f; do
-                python -c "import json; json.load(open('$f'))" && echo "OK: $f"
+                if [ -n "$f" ]; then
+                  python -c "import json; json.load(open('$f'))" && echo "OK: $f"
+                  count=$((count + 1))
+                fi
               done
+          echo "Validated $count JSON files"
 
-      - name: Validate YAML / Markdown front-matter
+      - name: Validate YAML files
         run: |
           set -euo pipefail
-          # Quick sanity check on YAML files (none expected, but if any)
-          if git ls-files '*.yml' '*.yaml' 2>/dev/null | grep -q .; then
+          # Quick sanity check on YAML files (none expected in this repo, but
+          # harmless if present). Use the same `|| true` guard for empty case.
+          if git ls-files '*.yml' '*.yaml' 2>/dev/null | { grep -v '^$' || true; } | grep -q .; then
             pip install pyyaml >/dev/null 2>&1 || true
-            git ls-files '*.yml' '*.yaml' | while read -r f; do
-              python -c "
-              try:
-                  import yaml
-                  yaml.safe_load(open('$f'))
-                  print('OK: $f')
-              except ImportError:
-                  pass
-              "
+            git ls-files '*.yml' '*.yaml' | { grep -v '^$' || true; } | while read -r f; do
+              [ -n "$f" ] && python -c "
+import sys, yaml
+try:
+    yaml.safe_load(open('$f'))
+    print('OK: $f')
+except Exception as e:
+    sys.exit(1)
+"
             done
+          else
+            echo "No YAML files to validate"
           fi
 
   lint:
@@ -107,8 +118,8 @@ jobs:
     continue-on-error: true  # don't block on lint — repo isn't strict yet
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Install ruff

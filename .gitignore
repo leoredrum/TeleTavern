@@ -57,3 +57,9 @@ sessions/
 # local backups (keep on disk, out of git)
 *.bak
 *.bak-*
+
+# SAENGMYEONG bot per-instance state (gitignored — never commit real RP content)
+saengmyeong-bot/logs/
+saengmyeong-bot/sessions/
+saengmyeong-bot/__pycache__/
+saengmyeong-bot/logs.bak/

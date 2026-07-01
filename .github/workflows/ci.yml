@@ -95,17 +95,11 @@ jobs:
           set -euo pipefail
           # Quick sanity check on YAML files (none expected in this repo, but
           # harmless if present). Use the same `|| true` guard for empty case.
-          if git ls-files '*.yml' '*.yaml' 2>/dev/null | { grep -v '^$' || true; } | grep -q .; then
+          files=$(git ls-files '*.yml' '*.yaml' 2>/dev/null | { grep -v '^$' || true; })
+          if [ -n "$files" ]; then
             pip install pyyaml >/dev/null 2>&1 || true
-            git ls-files '*.yml' '*.yaml' | { grep -v '^$' || true; } | while read -r f; do
-              [ -n "$f" ] && python -c "
-import sys, yaml
-try:
-    yaml.safe_load(open('$f'))
-    print('OK: $f')
-except Exception as e:
-    sys.exit(1)
-"
+            for f in $files; do
+              python -c "import sys, yaml; yaml.safe_load(open('$f'))" && echo "OK: $f"
             done
           else
             echo "No YAML files to validate"

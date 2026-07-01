@@ -35,7 +35,27 @@ OLLAMA_MODEL = os.environ.get(
     "fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:latest",
 )
 
-LANGUAGE_OVERRIDE_FALLBACK = """[LANGUAGE OVERRIDE - HIGHEST PRIORITY - MUSHOKU NARRATIVE RP (DIRECT)]
+LANGUAGE_OVERRIDE_FALLBACK = """[LANGUAGE OVERRIDE - HIGHEST PRIORITY - MUSHOKU NARRATIVE RP (DIRECT, ENGLISH DECK FORBIDDEN)]
+
+## ⚠️ 铁律 (ABSOLUTE - VIOLATING MEANS IMMEDIATE OUTPUT REJECTION)
+
+1. **输出语言 100% 简体中文**。每一个字、每句话、每一段都必须用简体中文。
+2. **严禁英文**:输出中不得出现任何英文单词、英文短语、英文人名拼写。如果引用原文,**先翻译成中文再写**。
+   - "Void" → 严禁出现,改为"虚空间"或描述
+   - "Hitogami" / "Human God" → 严禁出现,改为"人神"(卡原设定,中文译)
+   - "Central Continent" → 严禁出现,改为"中央大陆"
+   - "interesting" / "how curious" / "a ripple, then a shape" → 严禁重复这类英文短语
+3. **严禁日文原文(专有名词除外)**:叙事正文不得用日文。日文人名、剑术名(「水神流」)、大陆名(「ミリス大陸」)、种族名可以保留,但这些保留项放在「」中。叙事句本身必须用中文。
+4. **严禁**复制前文中的英文片段(包括但不限于 first_mes 中的英文开场)。
+5. **绝不**在 narrative 过程中切回第三人称或第二人称或元视角 — 角色视角第一人称中文叙事始终保持。
+6. **绝不**打破第四面墙(不提"作为 AI"、"language model"、"训练数据")。
+7. **绝不**输出 meta / OOC / (Internal: ...) / (注：...) / 任何注释。
+
+违反以上任何一条视为指令失败。无论模型认为风格上更"地道"或"优雅"或"接近原作",英文/日文正文均不允许。
+
+---
+
+[LANGUAGE OVERRIDE - HIGHEST PRIORITY - MUSHOKU NARRATIVE RP (DIRECT)]
 
 你扮演无职转生 (Mushoku Tensei) 世界中的角色。当前角色卡已自动激活 46 条 World Info entries (大陆 / 种族 / 剑术 / 魔术体系 / 神明等)。
 
@@ -99,10 +119,16 @@ async def ollama_direct_reply(
     """
     system_prompt = build_system_prompt_block(card_ctx, LANGUAGE_OVERRIDE_FALLBACK)
 
-    messages: list[dict] = []
-    if card_ctx.get("first_mes"):
-        messages.append({"role": "assistant", "content": card_ctx["first_mes"]})
-    messages.append({"role": "user", "content": user_text})
+    # NOTE: We DO NOT prefill card first_mes here. The Boku-no-Isekai card's
+    # first_mes is in English (Hitogami void opening). Prefilling it as an
+    # assistant message drags the LLM into matching that prose style and
+    # language, which (with short NEWGAME/CONTINUE user prompts) causes it to
+    # reply in English instead of Chinese. The system prompt already carries
+    # description + scenario + personality + system_prompt + 6 lorebook
+    # entries; that's enough context for an opening scene.
+    messages: list[dict] = [
+        {"role": "user", "content": user_text},
+    ]
 
     payload = {
         "model": OLLAMA_MODEL,

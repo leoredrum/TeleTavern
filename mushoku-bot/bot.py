@@ -635,9 +635,11 @@ async def cmd_newgame(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "正在加载 ST 开场白...",
     )
     # Trigger first ST generation (use first_mes from card)
+    # IMPORTANT: 中文开场提示,不要引导 LLM 用 first_mes (英文) 开始。
+    # first_mes 若是英文,会让 LLM 顺势复读英文;改成纯中文指示确保 100% 中文输出。
     await _generate_and_reply(
         update,
-        user_text="[NEWGAME: 玩家开始新剧情, 请从 first_mes 开始]",
+        user_text="[NEWGAME: 玩家开始新剧情。请以简体中文完成开场白 —— 角色视角第一人称描写当前场景,日文人名/剑术/大陆名保留原拼写(用「」包裹),正文严禁英文。描述包含:角色当前处境、周围环境、所处地点、季节/时辰。如有同伴可引入在场 NPC。直接开场,不要 meta 注释。]",
         session=session,
         log_player_text="[NEWGAME]",
     )
@@ -648,9 +650,10 @@ async def cmd_continue(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not session:
         await update.message.reply_text("📭 没有进行中的 session。用 /newgame 开新局。")
         return
+    # 中文继续提示,跟 NEWGAME 同样策略:不引导 first_mes,纯中文指示
     await _generate_and_reply(
         update,
-        user_text="[CONTINUE: 玩家请求继续推进剧情]",
+        user_text="[CONTINUE: 玩家请求继续推进剧情。请以简体中文续写 —— 角色视角第一人称,延续上一段场景,正文严禁英文。日文人名/专有术语保留原拼写(「」包裹)。]",
         session=session,
         log_player_text="[CONTINUE]",
     )

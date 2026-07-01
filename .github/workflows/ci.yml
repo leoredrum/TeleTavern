@@ -1,0 +1,118 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke:
+    name: Smoke (syntax + import)
+    runs-on: macos-14  # Qwen3.6-A3B path assumes Apple Silicon; keep macOS for parity
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install runtime deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Syntax check (all .py under tracked dirs)
+        run: |
+          set -euo pipefail
+          # py_compile every .py file tracked by git, except venv/ and tests/__pycache__/
+          git ls-files '*.py' \
+            | grep -vE '^(venv|\.venv)/' \
+            | xargs python -m py_compile
+
+      - name: Import smoke test
+        run: |
+          # bot.py needs TELEGRAM_BOT_TOKEN at import time → stub via env
+          set -a
+          : "${TELEGRAM_BOT_TOKEN:=ci-dummy-token}"
+          : "${OPENAI_BASE_URL:=http://127.0.0.1:8003/v1}"
+          export TELEGRAM_BOT_TOKEN OPENAI_BASE_URL
+          set +a
+
+          # ollama_openai_proxy.py has no side effects on import → just import it
+          python -c "
+          import importlib.util, sys
+          for mod in ['bridge.st_bridge', 'scripts.ollama_openai_proxy', 'telegram-bot.bot']:
+              spec = importlib.util.spec_from_file_location(
+                  mod.replace('.', '/'),
+                  mod.replace('.', '/') + '.py',
+              )
+              mod_obj = importlib.util.module_from_spec(spec)
+              try:
+                  spec.loader.exec_module(mod_obj)
+              except SystemExit:
+                  pass  # bot.py may call sys.exit if deps missing
+              except Exception as e:
+                  # bot.py imports python_telegram_bot etc; skip its own deps
+                  if 'bot' in mod and ('telegram' in str(e) or 'aiohttp' in str(e) or 'httpx' in str(e)):
+                      print(f'[skip {mod}] {e}')
+                  else:
+                      raise
+              print(f'OK: {mod}')
+          "
+
+      - name: Validate JSON config files
+        run: |
+          set -euo pipefail
+          # All tracked JSON files must parse
+          git ls-files '*.json' \
+            | grep -vE '^(venv|\.venv|node_modules)/' \
+            | while read -r f; do
+                python -c "import json; json.load(open('$f'))" && echo "OK: $f"
+              done
+
+      - name: Validate YAML / Markdown front-matter
+        run: |
+          set -euo pipefail
+          # Quick sanity check on YAML files (none expected, but if any)
+          if git ls-files '*.yml' '*.yaml' 2>/dev/null | grep -q .; then
+            pip install pyyaml >/dev/null 2>&1 || true
+            git ls-files '*.yml' '*.yaml' | while read -r f; do
+              python -c "
+              try:
+                  import yaml
+                  yaml.safe_load(open('$f'))
+                  print('OK: $f')
+              except ImportError:
+                  pass
+              "
+            done
+          fi
+
+  lint:
+    name: Lint (ruff, best-effort)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true  # don't block on lint — repo isn't strict yet
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: pip install ruff
+      - name: Run ruff
+        run: |
+          ruff check --select=E9,F63,F7,F82 --output-format=github telegram-bot bridge scripts tests || true

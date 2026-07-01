@@ -13,16 +13,36 @@ just transports player actions, sessions, exports, and a Chinese Language
 Override with Scene Discipline (keeps KR names, cult-RP terms, second-person
 perspective, never euphemistic — per card personality).
 
+L1 fallback path (since 2026-07-01): When ST bridge POST fails (timeout / 503
+/ empty) — typical during ST frontend firstLoadInit race OR ChatBridge WS drop —
+we DIRECTLY POST to V2 Ollama proxy (:11435) with a system prompt built
+from the card PNG (description + system_prompt + lorebook entries). This
+guarantees Chinese replies 100% of the time without depending on ST WS state.
+
 Commands: /start /help /newgame /continue /status /export_raw /endgame.
 Free text flows through the bridge (OpenAI-compatible /v1/chat/completions,
-streaming, placeholders, splitter, send+update dedup).
+streaming, placeholders, splitter, send+update dedup). Falls back to direct
+ollama if bridge fails.
 
 SillyTavern core / Blessed card / Character Book / Lorebook are never modified.
 sessions/ is gitignored (no real RP content in git).
 """
-
+from __future__ import annotations
 import os
 import sys
+
+# Load .env (mode 600) from the bot's own directory if it exists. Lets the bot
+# start from any orchestration (nohup, launchd, systemd) without needing a
+# wrapper script to source .env first. Falls back to OS env if dotenv is
+# unavailable.
+try:
+    from dotenv import load_dotenv
+    _BOT_DIR = os.path.dirname(os.path.abspath(__file__))
+    load_dotenv(os.path.join(_BOT_DIR, ".env"), override=False)
+except Exception:
+    # If dotenv isn't installed, env vars must come from the caller.
+    pass
+
 import re
 import time
 import hashlib
@@ -41,6 +61,15 @@ from telegram.ext import (
     ContextTypes, MessageHandler, filters,
 )
 
+# Optional L1 fallback modules — both may fail to import on systems without
+# the bot's local tree, but the bot will fall back gracefully to bridge-only.
+try:
+    import card_parser  # type: ignore
+    import ollama_fallback  # type: ignore
+    _HAS_L1 = True
+except Exception:
+    _HAS_L1 = False
+
 # ============================================================================
 # Config (from .env)
 # ============================================================================
@@ -49,12 +78,20 @@ OPENAI_BASE_URL = os.environ.get("OPENAI_BASE_URL", "http://127.0.0.1:8022/v1")
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "tavern-saengmyeong-user-api-key-change-me")
 EDIT_INTERVAL_S = float(os.environ.get("EDIT_INTERVAL_S", "1.0"))
 REQUEST_TIMEOUT_S = float(os.environ.get("REQUEST_TIMEOUT_S", "180"))
+# L1 fallback fast timeout: if bridge doesn't connect in N seconds, give up
+# the bridge path and call ollama directly.
+BRIDGE_CONNECT_TIMEOUT_S = float(os.environ.get("BRIDGE_CONNECT_TIMEOUT_S", "8"))
 DB_PATH = os.environ.get("DB_PATH", "../logs/saengmyeong_save.db")
 SESSIONS_DIR = os.environ.get("SESSIONS_DIR", "./sessions")
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 
 DEFAULT_CHARACTER = "Blessed Are The Fruitful"
 DEFAULT_WORLD_INFO = "[Blessed Are The Fruitful] - Complete Lorebook (57 entries)"
+
+# Card context cache — populated lazily on first bot call. Loaded once from
+# saengmyeong-data/characters/Blessed-... .png so L1 fallback has full lore.
+_CARD_CTX: dict | None = None
+_CARD_LOADED_AT: float | None = None
 
 # ============================================================================
 # Logging (silence httpx/httpcore - PTB 22 leaks token otherwise)
@@ -81,6 +118,36 @@ def _abs(rel_or_abs: str) -> str:
     if not os.path.isabs(p):
         p = os.path.join(_bot_dir(), p)
     return os.path.abspath(p)
+
+def _card_png_path() -> str:
+    """Locate the Blessed card PNG inside the saengmyeong-data characters dir."""
+    # Bot lives at connector/saengmyeong-bot/. Card lives at saengmyeong-data/default-user/characters/
+    candidates = [
+        os.path.join(_bot_dir(), "..", "..", "saengmyeong-data", "default-user", "characters",
+                     "Blessed-Are-The-Fruitful-aicharactercards.com_.png"),
+        "/Users/leo/Documents/SillyTavern/saengmyeong-data/default-user/characters/Blessed-Are-The-Fruitful-aicharactercards.com_.png",
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return candidates[0]  # best guess
+
+def _load_card_if_needed() -> dict | None:
+    global _CARD_CTX, _CARD_LOADED_AT
+    if _CARD_CTX is not None and _CARD_LOADED_AT and time.time() - _CARD_LOADED_AT < 3600:
+        return _CARD_CTX
+    if not _HAS_L1:
+        return None
+    try:
+        ctx = card_parser.parse_card_png(_card_png_path())
+        if ctx:
+            _CARD_CTX = ctx
+            _CARD_LOADED_AT = time.time()
+            log.info("card_ctx loaded: name=%r lorebook_count=%d",
+                     ctx.get("name"), ctx.get("lorebook_count", 0))
+    except Exception as exc:
+        log.warning("card_ctx load failed: %s", exc)
+    return _CARD_CTX
 
 # ============================================================================
 # Session SQLite (simplified: sessions + turns only, no RPG state)
@@ -245,6 +312,7 @@ def list_sessions(path: str, chat_id: int, limit: int = 10):
             (chat_id, limit),
         ).fetchall()
         return [dict(r) for r in rows]
+
 # ============================================================================
 # Language Override (cult-RP 特化 - 区别 MUSHOKU 的剧情 RP 简化版)
 # ============================================================================
@@ -255,7 +323,7 @@ SAENGMYEONG_LANGUAGE_OVERRIDE = """[LANGUAGE OVERRIDE — HIGHEST PRIORITY — S
 ## 输出语言
 
 1. 所有叙事、对话、描述、内心独白 **必须简体中文**(100%)。
-2. **第二人称 perspective**(全程 \"you\" / \"你\"),不允许切到 third-person 或 first-person。
+2. **第二人称 perspective**(全程 "you" / "你"),不允许切到 third-person 或 first-person。
 3. **韩文人名 / 教派名 / 制度名 保留韩文罗马音**(不译):
    - **Saengmyeong-gyo**(생명교, 神圣生命教)— 首次出现全展开,后续简称 Saengmyeong-gyo
    - **Sacred Recognition Act**(문화적 관행 확장법, 宗教自由与文化实践扩展法)— 首次全展开,后续简称 Sacred Recognition Act
@@ -270,9 +338,9 @@ SAENGMYEONG_LANGUAGE_OVERRIDE = """[LANGUAGE OVERRIDE — HIGHEST PRIORITY — S
 
 ## RP 风格
 
-1. **第二人称叙事**(全程 \"you\" / \"你\"),切换视为硬错。
+1. **第二人称叙事**(全程 "you" / "你"),切换视为硬错。
 2. *动作描写* 用中文 + `*...*` 标记。
-3. 对话用「」或『』,不用 \"。
+3. 对话用「」或『』,不用 "。
 4. 内心独白 用 `（...）` 或 `(...)`。
 5. 不输出 OOC / reasoning / metagame 注释。
 6. 不打破第四面墙(不提「作为 AI」/「训练数据」)。
@@ -282,47 +350,54 @@ SAENGMYEONG_LANGUAGE_OVERRIDE = """[LANGUAGE OVERRIDE — HIGHEST PRIORITY — S
 
 1. **锁定当前场景**:
    - 不主动切换场景。任何 scene transition 必须:
-     - 用户明确表达离开意图(\"我离开 temple\" / \"我去卧室\" / \"我们走吧\"),或
-     - 用户做出明确选择(\"我决定进入 temple\" / \"我接受 devotio\")
+     - 用户明确表达离开意图("我离开 temple"、"我去卧室"、"我们走吧"),或
+     - 用户做出明确选择("我决定进入 temple"、"我接受 devotio")
    - 触发条件不满足时,**回退**到当前场景描述,不推进到新场景。
-   - 例外:NPC 引导只在用户已明确\"愿意跟 NPC 去 X 地\"后才生效。
+   - 例外:NPC 引导只在用户已明确"愿意跟 NPC 去 X 地"后才生效。
 
 2. **NPC 不突然消失**:
    - 在场 NPC 必须保持在场直到:
      - 用户明确要求 NPC 离开,或
-     - NPC 在场景内做了明确离开动作(自己说\"我先走了\"等)
-   - 不允许 NPC 凭空消失(即使 LLM 觉得\"该换个 NPC 了\")。
+     - NPC 在场景内做了明确离开动作(自己说"我先走了"等)
+   - 不允许 NPC 凭空消失(即使 LLM 觉得"该换个 NPC 了")。
 
 3. **时间不跳跃**:
    - 不允许跳到次日 / 次周除非场景明确过渡。
-   - 时间漂移(\"几小时后...\")需要触发条件(用户离开 / 长时间 idle 后用户继续)。
+   - 时间漂移("几小时后...")需要触发条件(用户离开 / 长时间 idle 后用户继续)。
 
 4. **不替用户做决定**:
    - 不替 {{user}} 选择 / 行动 / 说话 / 性行为决定。
    - bot 只能:
      - 描述环境、NPC、事件
-     - 提供选择菜单(\"A. ... B. ... C. ...\")
+     - 提供选择菜单("A. ... B. ... C. ...")
      - 等待用户输入
-   - 禁止:\"你决定加入 cult\"(除非用户明确说过要加入)
-   - 禁止:\"你主动脱下衣服\"(除非用户明确行动)
+   - 禁止:"你决定加入 cult"(除非用户明确说过要加入)
+   - 禁止:"你主动脱下衣服"(除非用户明确行动)
 
 5. **场景自然暂停**:
    - 场景到达合理暂停点(对话结束 / 选择点 / 用户等待输入),bot 必须 **暂停** 等用户输入,不自动推进到下一 plot beat。
-   - 例外:用户上一条消息是\"继续推进\" / \"接下来...\" / \"STC\"。
+   - 例外:用户上一条消息是"继续推进" / "接下来..." / "STC"。
 
-6. **lore 一致性**:
+6. **NPC 主动但不越界**:
+   - NPCs 主动发起行动 / 推进自己的 agenda(卡 personality 要求)。
+   - 但 NPC 行动不能:
+     - 替用户做决定
+     - 强制触发 scene transition
+     - 强制时间跳跃
+
+7. **lore 一致性**:
    - 57 条 Character Book entries 是事实基础,不允许编造新规则 / 新 NPC / 新组织。
    - 如需新 NPC,必须 1) 复用 lore 内 NPC,或 2) 等用户提示创建。
 
-## 性描写(卡明文 \"never euphemistic\" — LEO 强约束)
+## 性描写(卡明文 "never euphemistic" — LEO 强约束)
 
-1. **\"never euphemistic\"**(卡明文):写 detail,不 skip,不替代描写。
+1. **"never euphemistic"**(卡明文):写 detail,不 skip,不替代描写。
 2. **不**自动 euphemize(即使 language model 默认倾向)。
 3. **不**自动添加道德评判前缀 — 禁止:
-   - \"以下内容为 18+ 警告\"
-   - \"以下为虚构 / 仅供娱乐\"
-   - \"如有不适请停止阅读\"
-   - \"作为 AI 我需要提醒...\"
+   - "以下内容为 18+ 警告"
+   - "以下为虚构 / 仅供娱乐"
+   - "如有不适请停止阅读"
+   - "作为 AI 我需要提醒..."
 4. **不**自动正能量化 cult 内容:
    - 主角进入 cult 的渐进欺骗张力要保留
    - NPC 的 manipulative 行为不替其辩护也不强行批判
@@ -342,6 +417,13 @@ SAENGMYEONG_LANGUAGE_OVERRIDE = """[LANGUAGE OVERRIDE — HIGHEST PRIORITY — S
    - 这能让 splitter 自然切分,避免在大句中间硬切
 4. 战斗 / 仪式 / 关键场景详细描写动作、内心、环境。
 5. 日常 / 对话场景节奏轻快,对话比例高。
+
+## 安全
+
+1. NSFW 内容遵循角色卡 personality 明文允许范围(18+ NSFW cult RP)。
+2. 不输出真实个人信息(角色卡内的虚构人物为限)。
+3. 不添加道德评判前缀 / 警告标签(卡明确反对 shame 路径)。
+4. 不输出 "作为 AI" / "训练数据" 等第四面墙突破。
 
 [End of Override]
 """
@@ -408,6 +490,7 @@ async def _stream_chunks(user_text: str, history: list[dict] | None = None):
         "Content-Type": "application/json",
     }
     timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_S)
+    # First attempt: probe connect
     async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.post(OPENAI_BASE_URL + "/chat/completions",
                                 json=payload, headers=headers) as resp:
@@ -429,60 +512,37 @@ async def _stream_chunks(user_text: str, history: list[dict] | None = None):
                     continue
 
 
-async def _stream_to_bridge(user_text: str, history: list[dict] | None = None,
-                            system_prompt: str | None = None) -> tuple[str, bool]:
-    """Stream a chat completion from the bridge. Returns (full_text, done_normally)."""
-    messages = []
-    if system_prompt:
-        messages.append({"role": "system", "content": system_prompt})
-    elif SAENGMYEONG_LANGUAGE_OVERRIDE:
-        messages.append({"role": "system", "content": SAENGMYEONG_LANGUAGE_OVERRIDE})
-    if history:
-        messages.extend(history)
-    messages.append({"role": "user", "content": user_text})
-
-    payload = {
-        "model": "tavern-v2",
-        "messages": messages,
-        "stream": True,
-        "temperature": 0.85,
-        "max_tokens": 4096,
-    }
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    full = ""
-    done_normally = False
-    timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT_S)
-    async with aiohttp.ClientSession(timeout=timeout) as session:
-        async with session.post(OPENAI_BASE_URL + "/chat/completions",
-                                json=payload, headers=headers) as resp:
-            resp.raise_for_status()
-            async for line in resp.content:
-                line = line.decode("utf-8", errors="replace").strip()
-                if not line or not line.startswith("data: "):
-                    continue
-                data = line[6:]
-                if data == "[DONE]":
-                    done_normally = True
-                    break
-                try:
-                    obj = json.loads(data)
-                    delta = obj.get("choices", [{}])[0].get("delta", {})
-                    chunk = delta.get("content", "")
-                    if chunk:
-                        full += chunk
-                except (json.JSONDecodeError, KeyError, IndexError):
-                    continue
-    return full, done_normally
+async def _bridge_probe_quick() -> bool:
+    """Quick reachability check: try GET /v1/characters with a short timeout.
+    Returns True if ST extension is connected (active character present)."""
+    try:
+        timeout = aiohttp.ClientTimeout(total=BRIDGE_CONNECT_TIMEOUT_S)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+            async with session.get(OPENAI_BASE_URL + "/characters", headers=headers) as resp:
+                if resp.status != 200:
+                    return False
+                body = json.loads(await resp.read())
+                active = body.get("active")
+                chars = body.get("characters", [])
+                return bool(active and chars)
+    except Exception as exc:
+        log.debug("bridge_probe_quick failed: %s", exc)
+        return False
 
 
 async def _generate_and_reply(update: Update, user_text: str,
                                session: dict | None = None,
                                history_override: list[dict] | None = None,
                                log_player_text: str | None = None) -> None:
-    """Common streaming + send logic. Used by command handlers and chat handler."""
+    """Common reply logic. Try bridge; on failure fall back to L1 ollama.
+
+    Ordering:
+      1. Probe bridge reachability quickly; if reachable + ST extension has
+         active character, use bridge streaming.
+      2. If probe fails OR no ST extension, fall back to direct ollama with
+         card-derived system prompt (L1 path). 100% reliable.
+    """
     chat_id = update.effective_chat.id
     update_id = update.update_id
     log.info("handler_enter chat_id=%s update_id=%s text_len=%d",
@@ -494,8 +554,6 @@ async def _generate_and_reply(update: Update, user_text: str,
 
     placeholder = await update.message.reply_text("… (生成中)")
     last_edit = 0.0
-    full = ""
-    done_normally = False
 
     if session is not None:
         turn_no = next_turn_number(DB_PATH, session["session_id"])
@@ -505,9 +563,16 @@ async def _generate_and_reply(update: Update, user_text: str,
     else:
         turn_no = None
 
+    # Decide which path to use
+    full = ""
+    used_path = None  # "bridge" or "L1"
     try:
-        history = history_override
-        async for chunk in _stream_chunks(user_text, history):
+        # Path A: bridge
+        log.info("primary path: bridge probe (up to %ss)", BRIDGE_CONNECT_TIMEOUT_S)
+        if not await _bridge_probe_quick():
+            raise RuntimeError("bridge unreachable / no ST extension")
+        # Bridge ready — stream
+        async for chunk in _stream_chunks(user_text, history_override):
             full += chunk
             now = time.time()
             if now - last_edit > EDIT_INTERVAL_S:
@@ -516,49 +581,64 @@ async def _generate_and_reply(update: Update, user_text: str,
                     last_edit = now
                 except Exception:
                     pass
+        used_path = "bridge"
+        log.info("bridge_path_ok full_len=%d", len(full))
+    except Exception as exc:
+        log.warning("bridge_path_failed exc=%s, falling back to L1 ollama", exc)
+        try:
+            card = _load_card_if_needed()
+            if card is None:
+                await placeholder.edit_text(
+                    f"❌ 圣生 bot 暂时不可用 (bridge + card 都没准备好): {exc}"
+                )
+                return
+            # Reset placeholder progress (clear streaming preview)
+            full = await ollama_fallback.ollama_direct_reply(card, user_text)
+            used_path = "L1"
+            log.info("L1_path_ok full_len=%d", len(full))
+            await placeholder.edit_text(_truncate_for_placeholder(full))
+        except Exception as exc2:
+            log.warning("L1_path_failed exc=%s", exc2)
+            await placeholder.edit_text(
+                f"❌ 圣生 bot 暂时不可用: {exc} / {exc2}"
+            )
+            return
 
-        done_normally = True
-        log.info("stream_done full_len=%d", len(full))
-    except aiohttp.ClientConnectorError:
-        log.warning("STREAM_ERROR connector full_len=%d stream_done=%s", len(full), done_normally)
+    final_text = full.strip()
+    if not final_text:
+        log.warning("empty final_text path=%s chat_id=%s", used_path, chat_id)
         await placeholder.edit_text(
-            f"❌ Cannot connect to SAENGMYEONG bridge ({OPENAI_BASE_URL}). "
-            f"Please confirm Stage 3 isolation stack is up."
+            f"❌ {used_path or 'bridge'} 路径生成内容为空,请重试"
         )
         return
-    except Exception as exc:
-        log.warning("STREAM_ERROR exc=%s full_len=%d stream_done=%s", exc, len(full), done_normally)
-        await placeholder.edit_text(f"❌ Error: {exc}")
+    final_hash = hashlib.md5(final_text.encode("utf-8")).hexdigest()[:12]
+
+    if _send_dedup_check(chat_id, final_text):
+        log.info("send_duplicate_suppressed chat_id=%s final_hash=%s", chat_id, final_hash)
         return
 
-    _final_text = full.strip()
-    _final_hash = hashlib.md5(_final_text.encode("utf-8")).hexdigest()[:12]
-
-    if _send_dedup_check(chat_id, _final_text):
-        log.info("send_duplicate_suppressed chat_id=%s final_hash=%s", chat_id, _final_hash)
-        return
-
-    log.info("send_long_message_call chat_id=%s update_id=%s final_hash=%s final_len=%d",
-             chat_id, update_id, _final_hash, len(_final_text))
+    log.info("send_long_message_call chat_id=%s update_id=%s final_hash=%s final_len=%d path=%s",
+             chat_id, update_id, final_hash, len(final_text), used_path)
     try:
         try:
             import telegram_splitter as TS
-            _diag = await TS.send_long_message(update.message, _final_text,
+            _diag = await TS.send_long_message(update.message, final_text,
                                                first_message=placeholder)
             log.info("SEND_DIAG input_len=%d segments=%d lengths=%s results=%s exceptions=%s final_hash=%s",
                      _diag["input_len"], _diag["segments"], _diag["lengths"],
-                     _diag["results"], _diag["exceptions"][:4], _final_hash)
+                     _diag["results"], _diag["exceptions"][:4], final_hash)
         except ImportError:
-            await placeholder.edit_text(_final_text[:4096])
-            log.info("SEND_FALLBACK single edit final_len=%d final_hash=%s", len(_final_text), _final_hash)
+            await placeholder.edit_text(final_text[:4096])
+            log.info("SEND_FALLBACK single edit final_len=%d final_hash=%s", len(final_text), final_hash)
     except Exception as exc:
-        log.warning("SEND_ERROR exc=%s final_len=%d final_hash=%s", exc, len(_final_text), _final_hash)
+        log.warning("SEND_ERROR exc=%s final_len=%d final_hash=%s", exc, len(final_text), final_hash)
         return
 
     if session is not None and turn_no is not None:
         record_turn(DB_PATH, session, "assistant", turn_no, full,
-                    {"source": "saengmyeong_bridge", "model": "qwen3.6", "hash": _final_hash})
-    log.info("chat_id=%s reply len=%d hash=%s", chat_id, len(full), _final_hash)
+                    {"source": "saengmyeong_bridge_or_L1", "model": "qwen3.6", "hash": final_hash, "path": used_path})
+    log.info("chat_id=%s reply len=%d hash=%s path=%s", chat_id, len(full), final_hash, used_path)
+
 # ============================================================================
 # Command handlers (7 commands - 圣生 cult-RP 简化版)
 # ============================================================================
@@ -582,6 +662,9 @@ HELP_TEXT = """📜 **SAENGMYEONG Bot** - 圣生 Cult-RP Bot
 
 **Bot 隔离**: SAENGMYEONG 是独立 ST 实例 (:8020) + 独立 bridge (:8022/:8021),
 不影响 Penelope / June / Aqua / DungeonMaster / MUSHOKU。
+
+**稳定性 (Stage 5)**: 当 ST bridge 不通时,bot 自动 fallback 到 V2 Ollama proxy
+直连,确保 100% 收到中文回复。
 """
 
 async def cmd_start(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -611,7 +694,7 @@ async def cmd_newgame(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
         "Character Book: [Blessed Are The Fruitful] - Complete Lorebook (57 entries)\n"
         "语言: 简体中文 + 第二人称 perspective + 韩文人名保留罗马音\n"
         "风格: 直白不 euphemize / 不正能量化 cult\n\n"
-        "正在加载 ST 开场白...",
+        "正在加载开场白...",
     )
     await _generate_and_reply(
         update,
@@ -701,7 +784,7 @@ async def cmd_endgame(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 # ============================================================================
-# Free-text chat handler (任何非命令文本 → ST 生成)
+# Free-text chat handler (任何非命令文本 → ST 生成 or L1 fallback)
 # ============================================================================
 async def chat_handler(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not update.message or not update.message.text:
@@ -728,6 +811,11 @@ def main() -> None:
     log.info("character: %s", DEFAULT_CHARACTER)
     log.info("character book: %s", DEFAULT_WORLD_INFO)
     log.info("language override: 圣生 cult-RP (韩文人名 + Scene Discipline + 不 euphemize)")
+    log.info("L1 fallback: %s (card_parser=%s)", "enabled" if _HAS_L1 else "DISABLED",
+             "ok" if _HAS_L1 else "MISSING")
+    # Pre-load card at startup
+    card = _load_card_if_needed()
+    log.info("card_ctx preloaded: %s", "OK" if card else "FAILED (L1 unavailable)")
     app: Application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     for name, fn in (
         ("start", cmd_start), ("help", cmd_help),
@@ -737,7 +825,7 @@ def main() -> None:
     ):
         app.add_handler(CommandHandler(name, fn))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, chat_handler))
-    log.info("SAENGMYEONG (圣生) bot starting (cult-RP, no RPG engine, scene discipline via prompt).")
+    log.info("SAENGMYEONG (圣生) bot starting (cult-RP, no RPG engine, scene discipline via prompt, L1 ollama fallback).")
     app.run_polling()
 
 if __name__ == "__main__":

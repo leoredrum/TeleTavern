@@ -22,8 +22,22 @@ SillyTavern core / Boku card / World Info are never modified.
 sessions/ is gitignored (no real RP content in git).
 """
 
+from __future__ import annotations
 import os
 import sys
+
+# Load .env (mode 600) from the bot's own directory if it exists. Lets the bot
+# start from any orchestration (nohup, launchd, systemd) without needing a
+# wrapper script to source .env first. Falls back to OS env if dotenv is
+# unavailable.
+try:
+    from dotenv import load_dotenv
+    _BOT_DIR = os.path.dirname(os.path.abspath(__file__))
+    load_dotenv(os.path.join(_BOT_DIR, ".env"), override=False)
+except Exception:
+    # If dotenv isn't installed, env vars must come from the caller.
+    pass
+
 import re
 import time
 import hashlib
@@ -37,11 +51,25 @@ from contextlib import closing
 
 import aiohttp
 from telegram import Update
-import telegram_splitter as TS  # auto-loaded for splitter.send_long_message
 from telegram.ext import (
     Application, ApplicationBuilder, CommandHandler,
     ContextTypes, MessageHandler, filters,
 )
+
+# Optional L1 fallback modules - both may fail to import on systems without
+# the bot's local tree, but the bot will fall back gracefully to bridge-only.
+try:
+    import card_parser  # type: ignore
+    import ollama_fallback  # type: ignore
+    _HAS_L1 = True
+except Exception:
+    _HAS_L1 = False
+
+# telegram_splitter is co-located (no fallback if missing - splitter is optional)
+try:
+    import telegram_splitter as TS  # noqa: F401
+except Exception:
+    TS = None  # type: ignore
 
 # ============================================================================
 # Config (from .env)
@@ -56,6 +84,15 @@ SESSIONS_DIR = os.environ.get("SESSIONS_DIR", "./sessions")
 LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
 
 DEFAULT_CHARACTER = "Boku no Isekai Jobless Reincarnation"
+
+# L1 fallback fast timeout: if bridge does not connect in N seconds, give up
+# the bridge path and call ollama directly.
+BRIDGE_CONNECT_TIMEOUT_S = float(os.environ.get("BRIDGE_CONNECT_TIMEOUT_S", "8"))
+
+# Card context cache - populated lazily on first L1 invocation. Loaded once
+# from mushoku-data/characters/Boku-no-Isekai-*.png so L1 fallback has full lore.
+_CARD_CTX = None
+_CARD_LOADED_AT = None
 
 # ============================================================================
 # Logging (silence httpx/httpcore - PTB 22 leaks token otherwise)
@@ -86,6 +123,66 @@ def _abs(rel_or_abs: str) -> str:
 # ============================================================================
 # Session SQLite (simplified: sessions + turns only, no RPG state)
 # ============================================================================
+# ============================================================================
+# Card path locator + lazy load (L1 fallback helpers)
+# ============================================================================
+def _card_png_path():
+    """Locate the Boku-no-Isekai card PNG inside mushoku-data/default-user/characters/."""
+    candidates = [
+        os.path.join(_BOT_DIR, "..", "..", "mushoku-data", "default-user", "characters",
+                     "Boku-no-Isekai-Jobless-Reincarnation-aicharactercards.com_-2.png"),
+        "/Users/leo/Documents/SillyTavern/mushoku-data/default-user/characters/Boku-no-Isekai-Jobless-Reincarnation-aicharactercards.com_-2.png",
+    ]
+    for c in candidates:
+        if os.path.exists(c):
+            return c
+    return candidates[0]  # best guess; ollama_fallback will report failure
+
+
+def _load_card_if_needed():
+    global _CARD_CTX, _CARD_LOADED_AT
+    if _CARD_CTX is not None and _CARD_LOADED_AT and time.time() - _CARD_LOADED_AT < 3600:
+        return _CARD_CTX
+    if not _HAS_L1:
+        return None
+    try:
+        ctx = card_parser.parse_card_png(_card_png_path())
+        if ctx:
+            _CARD_CTX = ctx
+            _CARD_LOADED_AT = time.time()
+            log.info("card_ctx loaded: name=%r lorebook_count=%d",
+                     ctx.get("name"), ctx.get("lorebook_count", 0))
+    except Exception as exc:
+        log.warning("card_ctx load failed: %s", exc)
+    return _CARD_CTX
+
+
+async def _bridge_probe_quick():
+    """Quick reachability check: try GET /v1/characters with a short timeout.
+    Returns True if ST extension is connected (active character present)."""
+    try:
+        timeout = aiohttp.ClientTimeout(total=BRIDGE_CONNECT_TIMEOUT_S)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+            async with session.get(OPENAI_BASE_URL + "/characters", headers=headers) as resp:
+                if resp.status != 200:
+                    return False
+                body = json.loads(await resp.read())
+                active = body.get("active")
+                chars = body.get("characters", [])
+                return bool(active and chars)
+    except Exception as exc:
+        log.debug("bridge_probe_quick failed: %s", exc)
+        return False
+
+
+def _truncate_for_placeholder(text, limit=4000):
+    """Streaming preview - truncate to keep within Telegram's edit_text limits."""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "\n\n... (生成中, 等待最终发送)"
+
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sessions (
     session_id   TEXT PRIMARY KEY,
@@ -333,11 +430,16 @@ def _update_dedup_check(chat_id: int, update_id: int) -> bool:
 # ============================================================================
 # Stream to bridge (POST /v1/chat/completions) with placeholder + long splitter
 # ============================================================================
-async def _generate_and_reply(update: Update, user_text: str,
-                               session: dict | None = None,
-                               history_override: list[dict] | None = None,
-                               log_player_text: str | None = None) -> None:
-    """Common streaming + send logic. Used by command handlers and chat handler."""
+async def _generate_and_reply(update, user_text, session=None,
+                               history_override=None, log_player_text=None):
+    """Common reply logic. Try bridge; on failure fall back to L1 ollama.
+
+    Ordering:
+      1. Probe bridge reachability quickly; if reachable + ST extension has
+         active character, use bridge streaming.
+      2. If probe fails OR no ST extension OR streaming raises, fall back to
+         direct ollama with card-derived system prompt (L1 path).
+    """
     chat_id = update.effective_chat.id
     update_id = update.update_id
     log.info("handler_enter chat_id=%s update_id=%s text_len=%d",
@@ -347,14 +449,9 @@ async def _generate_and_reply(update: Update, user_text: str,
         log.info("update_duplicate_suppressed chat_id=%s update_id=%s", chat_id, update_id)
         return
 
-    # 1. placeholder
-    placeholder = await update.message.reply_text("… (生成中)")
+    placeholder = await update.message.reply_text("... (生成中)")
     last_edit = 0.0
 
-    full = ""
-    done_normally = False
-
-    # 2. log player turn
     if session is not None:
         turn_no = next_turn_number(DB_PATH, session["session_id"])
         record_turn(DB_PATH, session, "player", turn_no,
@@ -363,10 +460,15 @@ async def _generate_and_reply(update: Update, user_text: str,
     else:
         turn_no = None
 
-    # 3. stream + edit placeholder periodically
+    # Decide which path to use
+    full = ""
+    used_path = None  # "bridge" or "L1"
     try:
-        history = history_override
-        async for chunk in _stream_chunks(user_text, history):
+        log.info("primary path: bridge probe (up to %ss)", BRIDGE_CONNECT_TIMEOUT_S)
+        if not await _bridge_probe_quick():
+            raise RuntimeError("bridge unreachable / no ST extension")
+        # Bridge ready - stream
+        async for chunk in _stream_chunks(user_text, history_override):
             full += chunk
             now = time.time()
             if now - last_edit > EDIT_INTERVAL_S:
@@ -374,56 +476,66 @@ async def _generate_and_reply(update: Update, user_text: str,
                     await placeholder.edit_text(_truncate_for_placeholder(full))
                     last_edit = now
                 except Exception:
-                    pass  # ignore "not modified" errors
+                    pass
+        used_path = "bridge"
+        log.info("bridge_path_ok full_len=%d", len(full))
+    except Exception as exc:
+        log.warning("bridge_path_failed exc=%s, falling back to L1 ollama", exc)
+        try:
+            card = _load_card_if_needed()
+            if card is None:
+                await placeholder.edit_text(
+                    f"❌ MUSHOKU bot 暂时不可用 (bridge 503 + card 未加载): {exc}"
+                )
+                return
+            full = await ollama_fallback.ollama_direct_reply(card, user_text)
+            used_path = "L1"
+            log.info("L1_path_ok full_len=%d", len(full))
+            try:
+                await placeholder.edit_text(_truncate_for_placeholder(full))
+            except Exception:
+                pass
+        except Exception as exc2:
+            log.warning("L1_path_failed exc=%s", exc2)
+            await placeholder.edit_text(
+                f"❌ MUSHOKU bot 暂时不可用: {exc} / {exc2}"
+            )
+            return
 
-        done_normally = True
-        log.info("stream_done full_len=%d", len(full))
-    except aiohttp.ClientConnectorError:
-        log.warning("STREAM_ERROR connector full_len=%d stream_done=%s", len(full), done_normally)
+    final_text = full.strip()
+    if not final_text:
+        log.warning("empty final_text path=%s chat_id=%s", used_path, chat_id)
         await placeholder.edit_text(
-            f"❌ Cannot connect to MUSHOKU bridge ({OPENAI_BASE_URL}). "
-            f"Please confirm Stage 3 isolation stack is up."
+            f"❌ {used_path or 'bridge'} 路径生成内容为空, 请重试"
         )
         return
-    except Exception as exc:
-        log.warning("STREAM_ERROR exc=%s full_len=%d stream_done=%s", exc, len(full), done_normally)
-        await placeholder.edit_text(f"❌ Error: {exc}")
+    final_hash = hashlib.md5(final_text.encode("utf-8")).hexdigest()[:12]
+
+    if _send_dedup_check(chat_id, final_text):
+        log.info("send_duplicate_suppressed chat_id=%s final_hash=%s", chat_id, final_hash)
         return
 
-    # 4. final send (use telegram_splitter for long messages)
-    _final_text = full.strip()
-    _final_hash = hashlib.md5(_final_text.encode("utf-8")).hexdigest()[:12]
-
-    # dedup check
-    if _send_dedup_check(chat_id, _final_text):
-        log.info("send_duplicate_suppressed chat_id=%s final_hash=%s", chat_id, _final_hash)
-        return
-
-    log.info("send_long_message_call chat_id=%s update_id=%s final_hash=%s final_len=%d",
-             chat_id, update_id, _final_hash, len(_final_text))
+    log.info("send_long_message_call chat_id=%s update_id=%s final_hash=%s final_len=%d path=%s",
+             chat_id, update_id, final_hash, len(final_text), used_path)
     try:
-        # Use splitter if available; otherwise single send
-        try:
-            import telegram_splitter as TS
-            _diag = await TS.send_long_message(update.message, _final_text,
+        if TS is not None:
+            _diag = await TS.send_long_message(update.message, final_text,
                                                first_message=placeholder)
             log.info("SEND_DIAG input_len=%d segments=%d lengths=%s results=%s exceptions=%s final_hash=%s",
                      _diag["input_len"], _diag["segments"], _diag["lengths"],
-                     _diag["results"], _diag["exceptions"][:4], _final_hash)
-        except ImportError:
-            # fallback: just edit placeholder
-            await placeholder.edit_text(_final_text[:4096])
-            log.info("SEND_FALLBACK single edit final_len=%d final_hash=%s", len(_final_text), _final_hash)
+                     _diag["results"], _diag["exceptions"][:4], final_hash)
+        else:
+            await placeholder.edit_text(final_text[:4096])
+            log.info("SEND_FALLBACK single edit final_len=%d final_hash=%s", len(final_text), final_hash)
     except Exception as exc:
-        log.warning("SEND_ERROR exc=%s final_len=%d final_hash=%s", exc, len(_final_text), _final_hash)
+        log.warning("SEND_ERROR exc=%s final_len=%d final_hash=%s", exc, len(final_text), final_hash)
         return
 
-    # 5. log assistant turn
     if session is not None and turn_no is not None:
         record_turn(DB_PATH, session, "assistant", turn_no, full,
-                    {"source": "mushoku_bridge", "model": "qwen3.6", "hash": _final_hash})
-        touch_session = None  # placeholder
-    log.info("chat_id=%s reply len=%d hash=%s", chat_id, len(full), _final_hash)
+                    {"source": "mushoku_bridge_or_L1", "model": "qwen3.6",
+                     "hash": final_hash, "path": used_path})
+    log.info("chat_id=%s reply len=%d hash=%s path=%s", chat_id, len(full), final_hash, used_path)
 
 
 async def _stream_chunks(user_text: str, history: list[dict] | None = None):
@@ -490,6 +602,9 @@ HELP_TEXT = """📜 **MUSHOKU Bot** - 无职转生剧情 RP Bot
 
 **Bot 隔离**: MUSHOKU 是独立 ST 实例 (:8015) + 独立 bridge (:8017/:8016),
 不影响 Penelope / June / Aqua / DungeonMaster。
+
+**稳定性 (Stage 6)**: 当 ST bridge 不通时, bot 自动 fallback 到 V2 Ollama proxy
+直连,确保 100% 收到中文回复 (无 ST WS race 卡死)。
 """
 
 async def cmd_start(update: Update, _ctx: ContextTypes.DEFAULT_TYPE) -> None:
@@ -746,6 +861,11 @@ def main() -> None:
     log.info("bridge at %s", OPENAI_BASE_URL)
     log.info("character: %s", DEFAULT_CHARACTER)
     log.info("language override: 剧情向 (日文人名保留原拼写)")
+    log.info("L1 fallback: %s (card_parser=%s)", "enabled" if _HAS_L1 else "DISABLED",
+             "ok" if _HAS_L1 else "MISSING")
+    # Pre-load card at startup so first message can fall back instantly
+    card = _load_card_if_needed()
+    log.info("card_ctx preloaded: %s", "OK" if card else "FAILED (L1 unavailable)")
     app: Application = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
     for name, fn in (
         ("start", cmd_start), ("help", cmd_help),

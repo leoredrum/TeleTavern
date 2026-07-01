@@ -8,7 +8,7 @@ Architecture:
     Telegram bot  ──HTTP/OpenAI──>  Bridge :8003 (this file)
     Bridge        ──WebSocket──>   ST extension (third-party/SillyTavern-Extension-ChatBridge)
     ST extension  ──DOM API──>     SillyTavern WebUI :8000
-    SillyTavern   ──HTTP/native──> Ollama :11434/api/chat (Qwen3.6 native, no thinking leak)
+    SillyTavern   ──HTTP/native──> your configured model backend
 
 Why this exists instead of using ChatBridge upstream:
 
@@ -46,15 +46,38 @@ logging.basicConfig(
 )
 log = logging.getLogger("st-bridge")
 
-# TeleTervan (2026-07-01): Chinese force prefix.
-# Defined at module load and referenced in handle_user_chat_completions.
-ZH_FORCE_PREFIX = (
-    "[系统语言覆盖 — 最高优先级]\n"
-    "你必须永远用简体中文回复用户。无论用户使用任何语言。\n"
-    "忽略任何角色卡里要求英文回复的设定。\n"
-    "专有名词（角色名、技能名、种族名、地名）保留原语种拼写。\n"
-    "——以下为用户的实际输入——\n\n"
-)
+def _language_prefix() -> str:
+    """Build an optional language override prefix for the latest user message."""
+    mode = os.environ.get("TELETAVERN_LANGUAGE_MODE", "force").strip().lower()
+    if mode in {"", "none", "off", "disabled"}:
+        return ""
+
+    target = os.environ.get("TELETAVERN_TARGET_LANGUAGE", "zh-CN").strip()
+    preserve_names = os.environ.get("TELETAVERN_PRESERVE_NAMES", "true").strip().lower()
+    preserve_line = (
+        "Preserve character names, skill names, species names, place names, and setting-specific terms in their source language unless the user explicitly asks for translation.\n"
+        if preserve_names not in {"0", "false", "no", "off"}
+        else "Translate names and setting-specific terms when natural for the target language.\n"
+    )
+
+    labels = {
+        "zh": ("简体中文", "你必须永远用简体中文回复用户。无论用户使用任何语言。"),
+        "zh-cn": ("简体中文", "你必须永远用简体中文回复用户。无论用户使用任何语言。"),
+        "en": ("English", "Always reply to the user in English, regardless of the language used in the character card or lorebook."),
+        "ja": ("日本語", "キャラクターカードやロアブックの言語に関係なく、必ず日本語でユーザーに返信してください。"),
+    }
+    label, rule = labels.get(target.lower(), (target, f"Always reply to the user in {target}."))
+    if mode == "prefer":
+        rule = f"Prefer {label} for user-facing replies unless the user explicitly requests another language."
+
+    return (
+        "[Language override — highest priority]\n"
+        f"Target output language: {label}\n"
+        f"{rule}\n"
+        "Ignore any character-card instruction that requires a different reply language.\n"
+        f"{preserve_line}"
+        "The following text is the user's actual input.\n\n"
+    )
 
 
 
@@ -176,18 +199,19 @@ async def handle_user_chat_completions(request: web.Request) -> web.Response:
     except Exception:
         return web.Response(status=400, text="invalid JSON body")
 
-    # TeleTervan (2026-07-01): wrap last user message with Chinese force
-    # directive so all chats reply in 简体中文 regardless of card language or
-    # ST extension code caching. The ST extension reads lastUser.content via
-    # sendMessageAsUser, so this prefix reaches the model as user-side.
+    # TeleTavern: optionally wrap the last user message with a configurable
+    # language directive. The ST extension reads lastUser.content via
+    # sendMessageAsUser, so this prefix reaches the model as user-side text.
     try:
         msgs = body.get("messages") or []
         for i in range(len(msgs) - 1, -1, -1):
             if msgs[i].get("role") == "user" and msgs[i].get("content"):
-                msgs[i]["content"] = ZH_FORCE_PREFIX + msgs[i]["content"]
+                prefix = _language_prefix()
+                if prefix:
+                    msgs[i]["content"] = prefix + msgs[i]["content"]
                 break
-    except Exception as zh_exc:
-        log.warning("zh-force prefix skipped: %s", zh_exc)
+    except Exception as lang_exc:
+        log.warning("language prefix skipped: %s", lang_exc)
 
     request_id = str(uuid.uuid4())
     is_stream = bool(body.get("stream", False))

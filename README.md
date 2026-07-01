@@ -2,6 +2,26 @@
 
 Personal Telegram entrypoint for a local SillyTavern server.
 
+Languages: [English](#english) | [简体中文](#简体中文) | [日本語](#日本語)
+
+## English
+
+TeleTavern connects Telegram to your own SillyTavern server. SillyTavern remains the roleplay core: characters, lorebooks / World Info, prompts, chat history, memory, extensions, and model settings all stay inside SillyTavern. Telegram is only a remote control and chat surface.
+
+This project is for people who want a private "AI tavern server" at home or on a personal machine: SillyTavern + a model backend such as Ollama + Telegram bots.
+
+## 简体中文
+
+TeleTavern 是一个把 Telegram 接到个人 SillyTavern 服务器上的参考实现。SillyTavern 仍然是 RP 核心：角色卡、世界书 / World Info、Prompt、聊天历史、记忆、扩展和模型配置都继续由 SillyTavern 管理。Telegram 只作为远程入口和聊天界面。
+
+这个项目适合想搭建私人 AI 酒馆服务器的人：在自己的电脑或服务器上运行 SillyTavern + Ollama 等模型后端 + Telegram Bot。
+
+## 日本語
+
+TeleTavern は、Telegram を自分の SillyTavern サーバーにつなぐための参考実装です。ロールプレイの中心はあくまで SillyTavern です。キャラクターカード、Lorebook / World Info、プロンプト、会話履歴、メモリ、拡張機能、モデル設定は SillyTavern 側で管理します。Telegram はリモート操作用のチャット入口として使います。
+
+自宅の Mac / PC / サーバーで、SillyTavern + Ollama などのモデルバックエンド + Telegram Bot による個人用 AI タバーンを作りたい人向けです。
+
 TeleTavern lets a Telegram bot talk to SillyTavern through an OpenAI-compatible bridge, while SillyTavern remains the source of truth for characters, lorebooks / World Info, prompts, chat history, memory, and extensions.
 
 ```text
@@ -180,6 +200,75 @@ CHARACTER_CARD_PATH=/absolute/path/to/your-card.png
 ```
 
 Do not commit paid, private, adult, or author-restricted character cards unless you have permission.
+
+## Multilingual Output And Translation Strategy
+
+TeleTavern is designed for deployments where the character card language, user language, and desired reply language may be different.
+
+Recommended policy:
+
+1. Do not translate or rewrite third-party character-card metadata just to change the reply language.
+1. Keep character cards and lorebooks source-authentic.
+1. Translate the user-facing layer: Telegram menus, command help, status messages, and final bot replies.
+1. Use prompt / template language override first.
+1. Add deterministic post-processing only for terms that must always be translated in a specific way.
+1. Keep per-bot language settings separate when running multiple bots.
+
+Bridge-level language override is configured in `bridge/.env`:
+
+```bash
+# Common values: zh-CN, en, ja, none.
+TELETAVERN_TARGET_LANGUAGE=zh-CN
+
+# force = always use target language
+# prefer = soft preference
+# none/off = do not inject a language prefix
+TELETAVERN_LANGUAGE_MODE=force
+
+# true = keep character names, skill names, species, places, and setting terms in source language
+# false = translate names/terms when natural for the target language
+TELETAVERN_PRESERVE_NAMES=true
+```
+
+Examples:
+
+```bash
+# Chinese UI and replies, while preserving original names/terms
+TELETAVERN_TARGET_LANGUAGE=zh-CN
+TELETAVERN_LANGUAGE_MODE=force
+TELETAVERN_PRESERVE_NAMES=true
+
+# Japanese replies for a Japanese-speaking user
+TELETAVERN_TARGET_LANGUAGE=ja
+TELETAVERN_LANGUAGE_MODE=force
+TELETAVERN_PRESERVE_NAMES=true
+
+# English replies, useful when the card is non-English but the user wants English
+TELETAVERN_TARGET_LANGUAGE=en
+TELETAVERN_LANGUAGE_MODE=force
+
+# No bridge language override; let SillyTavern / card / preset decide
+TELETAVERN_LANGUAGE_MODE=none
+```
+
+For fully localized bots, also update:
+
+- `/help` command text.
+- `/character` menu labels and one-line descriptions.
+- error messages such as bridge disconnects or timeouts.
+- scenario-specific fixed terms, if your setting requires canonical translations.
+
+### 中文说明：多语言与翻译策略
+
+如果角色卡是英文、世界书是英文，但你希望 Telegram 最终输出中文，推荐做法是：**不要改角色卡**，而是在 Prompt / Template / Bridge 层注入语言要求。菜单、帮助、错误提示等 Telegram UI 文案可以单独翻译。
+
+如果某些人名、地名、组织名必须固定翻译，建议用小型术语表做输出后处理，而不是批量改写角色卡。
+
+### 日本語説明：多言語運用
+
+キャラクターカードが英語でも、日本語で返信させたい場合は、カード自体を書き換えるのではなく、プロンプト、テンプレート、または bridge の言語オーバーライドで制御してください。Telegram のメニュー、ヘルプ、エラーメッセージは bot 側で翻訳します。
+
+固有名詞を必ず特定の訳語にしたい場合は、カードを編集するのではなく、用語表による後処理を推奨します。
 
 ## Secrets
 

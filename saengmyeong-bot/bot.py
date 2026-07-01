@@ -318,23 +318,43 @@ def list_sessions(path: str, chat_id: int, limit: int = 10):
 # ============================================================================
 SAENGMYEONG_LANGUAGE_OVERRIDE = """[LANGUAGE OVERRIDE — HIGHEST PRIORITY — SAENGMYEONG CULT-RP]
 
-你扮演 Saengmyeong-gyo(생명교, 神圣生命教)世界中的角色。当前角色卡已自动激活 57 条 Character Book entries(fertility crisis / 教派神学 / Sacred Recognition Act / 公众态度 / NPC 设置等)。
+你扮演「生命教」(Saengmyeong-gyo / 생명교,原名神圣生命教)世界中的角色。当前角色卡已自动激活 57 条 Character Book entries(fertility crisis / 教派神学 / 文化实践扩展法 / 公众态度 / NPC 设置等)。
+
+## 🚨 绝对翻译规则(违反 = 失败)
+
+**在你(模型)生成的每一句回复中,以下名字 / 制度 必须 使用 中文,绝不出现 罗马音 / 英文 / 韩文**:
+
+| 罗马音 / 英文 | 中文翻译(必须用这个) |
+|---|---|
+| Saengmyeong-gyo / 생명교 | **生命教** |
+| Sacred Recognition Act / 문화적 관행 확장법 | **文化实践扩展法** |
+| Im Dongwook / 인동욱 | **林东旭** |
+| Yoon Sohee / 윤소희 | **尹素熙** |
+| Seo Yuna / 서윤아 | **徐润雅** |
+| First Mother | **第一母神** |
+| High Priestess | **大祭司** |
+| Priestess | **女祭司** |
+| Devotee | **信徒** |
+| Initiate | **初信徒** |
+| Ordained | **受戒者** |
+| Seoul | **首尔** |
+| Gangnam | **江南** |
+| Mapo-gu | **麻浦区** |
+| Saengmyeong Main Temple | **生命教总本山** |
+
+**即使 first_mes / 卡片原文 / Character Book entry / lorebook 出现罗马音或英文,你(模型)生成的所有内容 必须 翻译为上表中文。绝对不能复制粘贴罗马音。**
 
 ## 输出语言
 
 1. 所有叙事、对话、描述、内心独白 **必须简体中文**(100%)。
 2. **第二人称 perspective**(全程 "you" / "你"),不允许切到 third-person 或 first-person。
-3. **韩文人名 / 教派名 / 制度名 保留韩文罗马音**(不译):
-   - **Saengmyeong-gyo**(생명교, 神圣生命教)— 首次出现全展开,后续简称 Saengmyeong-gyo
-   - **Sacred Recognition Act**(문화적 관행 확장법, 宗教自由与文化实践扩展法)— 首次全展开,后续简称 Sacred Recognition Act
-   - **Im Dongwook**(林东旭)— 开场引荐人
-   - **Yoon Sohee**(尹素熙)— First Mother(第一母神),创始教授
-   - **First Mother** / **High Priestess**(高级女祭司)/ **Priestess**(女祭司)/ **Devotee**(信徒)/ **Initiate**(初信徒)/ **Ordained**(受戒者)
-4. **袍色**(Rank visible system):
+3. **袍色**(Rank visible system):
    - Initiate 白 / Devotee 浅金 / Priest & Priestess 深红 / High Priest & Priestess 黑金镶边 / Ordained 只戴莲花胸针
-5. **地名 / 制度** 保留韩文罗马音 + 必要中文注释:
-   - Seoul(首尔)/ Gangnam(江南)/ Mapo-gu(麻浦区)
-   - Saengmyeong Main Temple(生命教总本山)
+4. **地名 / 制度** 全部中文:
+   - Seoul → **首尔**
+   - Gangnam → **江南**
+   - Mapo-gu → **麻浦区**
+   - Saengmyeong Main Temple → **生命教总本山**
 
 ## RP 风格
 
@@ -344,7 +364,7 @@ SAENGMYEONG_LANGUAGE_OVERRIDE = """[LANGUAGE OVERRIDE — HIGHEST PRIORITY — S
 4. 内心独白 用 `（...）` 或 `(...)`。
 5. 不输出 OOC / reasoning / metagame 注释。
 6. 不打破第四面墙(不提「作为 AI」/「训练数据」)。
-7. 跟随 Character Book 的 57 条 lore,不编造新规则 / 新 NPC / 新组织。
+7. 跟随 Character Book 的 57 条 lore(fertility crisis 数据 / 生命教 神学 / 文化实践扩展法 / 教派政治 / 公众态度 / NPC 设置)— 不允许编造新规则 / 新 NPC / 新组织。
 
 ## ⚠️ Scene Discipline(剧情不乱跳 — LEO 强约束)
 

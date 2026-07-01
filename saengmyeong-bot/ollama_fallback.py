@@ -24,6 +24,40 @@ import aiohttp
 
 log = logging.getLogger("saengmyeong")
 
+# Translation table: Romanization / English -> Chinese
+# Used to translate first_mes before assistant prefill so the model doesn't
+# follow the card's original Romanization style (Leoredrum 决策: user-facing
+# 全部中文).
+_TRANSLATION_TABLE: list[tuple[str, str]] = [
+    ("Saengmyeong Main Temple", "生命教总本山"),
+    ("Sacred Recognition Act", "文化实践扩展法"),
+    ("Saengmyeong-gyo", "生命教"),
+    ("Im Dongwook", "林东旭"),
+    ("Yoon Sohee", "尹素熙"),
+    ("Seo Yuna", "徐润雅"),
+    ("First Mother", "第一母神"),
+    ("High Priestess", "大祭司"),
+    ("Priestess", "女祭司"),
+    ("Devotee", "信徒"),
+    ("Initiate", "初信徒"),
+    ("Ordained", "受戒者"),
+    ("Gangnam", "江南"),
+    ("Mapo-gu", "麻浦区"),
+    ("Seoul", "首尔"),
+]
+
+
+def translate_to_chinese(text: str) -> str:
+    """Replace Romanization / English names with Chinese. Order: longer first
+    to avoid partial-match collisions (e.g. 'Priestess' before any 'Priest'
+    if such existed)."""
+    if not text:
+        return text
+    for src, dst in _TRANSLATION_TABLE:
+        text = text.replace(src, dst)
+    return text
+
+
 # Reuse the card_parser + ollama_client in the same directory.
 try:
     from card_parser import build_system_prompt_block
@@ -40,13 +74,37 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "fredrezones55/Qwen3.6-35B-A3B-Unc
 
 LANGUAGE_OVERRIDE_FALLBACK = """[LANGUAGE OVERRIDE — HIGHEST PRIORITY — SAENGMYEONG CULT-RP (DIRECT)]
 
-你是 Saengmyeong-gyo(생명교, 神圣生命教)世界中的角色。当前角色卡已激活 57 条 Character Book entries。
+你是「生命教」(Saengmyeong-gyo / 생명교)世界中的角色。当前角色卡已激活 57 条 Character Book entries。
+
+## 🚨 绝对翻译规则(违反 = 失败)
+
+**在你(模型)生成的每一句回复中,以下名字 / 制度 必须 使用 中文,绝不出现 罗马音 / 英文 / 韩文**:
+
+| 罗马音 / 英文 | 中文翻译(必须用这个) |
+|---|---|
+| Saengmyeong-gyo / 생명교 | **生命教** |
+| Sacred Recognition Act / 문화적 관행 확장법 | **文化实践扩展法** |
+| Im Dongwook / 인동욱 | **林东旭** |
+| Yoon Sohee / 윤소희 | **尹素熙** |
+| Seo Yuna / 서윤아 | **徐润雅** |
+| First Mother | **第一母神** |
+| High Priestess | **大祭司** |
+| Priestess | **女祭司** |
+| Devotee | **信徒** |
+| Initiate | **初信徒** |
+| Ordained | **受戒者** |
+| Seoul | **首尔** |
+| Gangnam | **江南** |
+| Mapo-gu | **麻浦区** |
+| Saengmyeong Main Temple | **生命教总本山** |
+
+**即使 first_mes / 卡片原文 / Character Book entry / lorebook 出现罗马音或英文,你(模型)生成的所有内容 必须 翻译为上表中文。绝对不能复制粘贴罗马音。**
 
 ## 输出语言
 
 1. 所有叙事、对话、描述、内心独白必须简体中文(100%)。
 2. **第二人称 perspective**(全程 "you" / "你"),不允许切到 third-person 或 first-person。
-3. **韩文人名 / 教派名 / 制度名 保留韩文罗马音**(不译):Saengmyeong-gyo / Sacred Recognition Act / Im Dongwook / Yoon Sohee / Seo Yuna 等。
+3. **地名中文**:Seoul → 首尔、Gangnam → 江南、Mapo-gu → 麻浦区、Saengmyeong Main Temple → 生命教总本山。
 4. **直白描写,不 euphemize**(角色卡明文 "never euphemistic")。禁止"以下为 18+ 警告"等元评论。
 
 ## Scene Discipline(剧情不乱跳)
@@ -79,9 +137,12 @@ async def ollama_direct_reply(
 
     # Build the messages with first_mes (opening) as assistant prefill,
     # then user request — same shape as what ST normally produces.
+    # Translate first_mes Romanization -> Chinese BEFORE prefill so the model
+    # doesn't follow the card's original Romanization style.
     messages: list[dict] = []
     if card_ctx.get("first_mes"):
-        messages.append({"role": "assistant", "content": card_ctx["first_mes"]})
+        translated_first_mes = translate_to_chinese(card_ctx["first_mes"])
+        messages.append({"role": "assistant", "content": translated_first_mes})
     messages.append({"role": "user", "content": user_text})
 
     payload = {

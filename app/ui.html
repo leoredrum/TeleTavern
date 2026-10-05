@@ -61,6 +61,7 @@
   <button data-tab="chat">💬 本地聊天</button>
   <button data-tab="bots">🤖 Bots</button>
   <button data-tab="characters">🎭 角色卡</button>
+  <button data-tab="store">🛒 角色卡商店</button>
   <button data-tab="worlds">📚 世界书</button>
   <button data-tab="models">🧠 模型</button>
   <button data-tab="logs">📜 日志</button>
@@ -120,6 +121,18 @@
     <div class="grid" id="char-grid"></div>
   </section>
 
+  <section id="store">
+    <h2>角色卡商店 — aicharactercards.com</h2>
+    <div class="card">
+      <div class="row"><button class="btn primary" onclick="storeOpen()">打开 aicharactercards.com</button>
+        <button class="btn" onclick="storeScan()">扫描下载文件夹（最近 24 小时）</button>
+        <span class="muted" id="store-state"></span></div>
+      <p class="muted" style="margin:10px 0 0">会打开一个内嵌浏览器窗口：在里面登录你的账号、浏览并点击下载。保存对话框默认指向「下载」文件夹；
+      保存后 App 会自动识别是否为 SillyTavern 角色卡并导入到 <code>characters/</code>。登录状态会被记住。</p>
+    </div>
+    <div class="card"><b>最近导入</b><div id="store-imports" class="muted" style="margin-top:8px">（无）</div></div>
+  </section>
+
   <section id="worlds">
     <div class="row" style="justify-content:space-between"><h2>世界书</h2>
       <div class="row"><button class="btn" onclick="importFiles('worlds')">导入 JSON…</button>
@@ -170,6 +183,7 @@ function showTab(id) {
   if (id === 'logs') refreshLog();
   if (id === 'models') renderOllama();
   if (id === 'chat') chatInit();
+  if (id === 'store') storeRefresh();
 }
 
 async function engine(cmd) { await api(cmd); toast(cmd === 'stop' ? '已停止' : '引擎启动中…'); setTimeout(refresh, 800); }
@@ -303,6 +317,17 @@ async function pullName(n) { await api('pull_model', n); toast('开始拉取 ' +
 async function pull() { const n = $('#pull-name').value.trim(); if (!n) return; pullName(n); }
 
 async function refreshLog() { if (!$('#logs').classList.contains('active')) return; const el = $('#log'); const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20; el.textContent = await api('logs', 300); if (atBottom) el.scrollTop = el.scrollHeight; }
+
+// ---- store ----
+async function storeOpen() { const r = await api('store_open', ''); toast(r.ok ? '已打开商店窗口' : r.error); setTimeout(storeRefresh, 500); }
+async function storeScan() { const r = await api('store_scan_now', 24); toast(r.imported.length ? `导入 ${r.imported.length} 张：${r.imported.join('、')}` : '没有发现新的角色卡'); CHARS = null; storeRefresh(); }
+async function storeRefresh() {
+  if (!$('#store').classList.contains('active')) return;
+  const s = await api('store_status');
+  $('#store-state').textContent = (s.open ? '商店窗口已打开 · ' : '') + '监视：' + s.downloads_dir;
+  $('#store-imports').innerHTML = s.imports.length ? s.imports.map(i => `<div>${new Date(i.when*1000).toLocaleTimeString()} · <b>${esc(i.name)}</b> <code>${esc(i.file)}</code> — ${esc(i.note)}</div>`).join('') : '（无）';
+}
+setInterval(storeRefresh, 3000);
 
 // ---- local chat ----
 let CHAT_BOT = null, CHAT_VER = -1, CHAT_TIMER = null;

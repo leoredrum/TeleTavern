@@ -8,12 +8,14 @@ from __future__ import annotations
 import base64
 import io
 import json
+import logging
 import os
 import re
 import shutil
 import subprocess
 import sys
 import threading
+import time
 import urllib.request
 from pathlib import Path
 
@@ -55,6 +57,11 @@ class Api:
         self._pull: dict[str, str] = {}
         self.window = None
         self.local = LocalChat(self.data_dir)
+        self._store_win = None
+        self._store_opened_at = 0.0
+        self._store_imports: list[dict] = []
+        self._store_seen: set[str] = set()
+        self._store_watch_started = False
 
     # ---- state ------------------------------------------------------------------------
     def state(self) -> dict:
@@ -345,6 +352,94 @@ class Api:
             subprocess.Popen(["open", path])
         return {"ok": True}
 
+    # ---- character-card store (aicharactercards.com in an embedded browser) ------------------------
+    STORE_URL = "https://aicharactercards.com/"
+
+    def _downloads_dir(self) -> Path:
+        return Path(os.environ.get("TAVERN_DOWNLOADS_DIR", str(Path.home() / "Downloads")))
+
+    def store_open(self, url: str = "") -> dict:
+        url = url if url.startswith("https://aicharactercards.com") else self.STORE_URL
+        try:
+            if self._store_win is not None:
+                try:
+                    self._store_win.load_url(url)
+                    return {"ok": True, "reused": True}
+                except Exception:  # noqa: BLE001  (window was closed)
+                    self._store_win = None
+            self._store_opened_at = time.time()
+            self._store_win = webview.create_window("角色卡商店 — aicharactercards.com", url, width=1240,
+                                                    height=860, min_size=(800, 600))
+
+            def _closed():
+                self._store_win = None
+
+            self._store_win.events.closed += _closed
+            self._start_store_watch()
+            return {"ok": True}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:200]}
+
+    def _start_store_watch(self) -> None:
+        if self._store_watch_started:
+            return
+        self._store_watch_started = True
+
+        def loop():
+            while True:
+                try:
+                    self._store_scan(since=self._store_opened_at)
+                except Exception as exc:  # noqa: BLE001
+                    logging.getLogger("tavern.store").warning("watch: %s", exc)
+                time.sleep(2)
+
+        threading.Thread(target=loop, name="tavern-store-watch", daemon=True).start()
+
+    def _is_card(self, path: Path):
+        from character_card import load_character
+        try:
+            c = load_character(path)
+            return c if (c.name or c.description) else None
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _store_scan(self, since: float) -> list[dict]:
+        d = self._downloads_dir()
+        if not d.exists():
+            return []
+        found = []
+        for p in sorted(d.glob("*.png"), key=lambda x: x.stat().st_mtime):
+            st = p.stat()
+            key = f"{p.name}:{st.st_size}:{int(st.st_mtime)}"
+            if st.st_mtime < since or key in self._store_seen:
+                continue
+            if time.time() - st.st_mtime < 1.5:      # still being written
+                continue
+            self._store_seen.add(key)
+            card = self._is_card(p)
+            if card is None:
+                continue
+            dest = self.data_dir / "characters" / p.name
+            if dest.exists() and dest.stat().st_size == st.st_size:
+                self._store_imports.append({"file": p.name, "name": card.name, "when": time.time(), "note": "已存在，跳过"})
+                continue
+            if dest.exists():
+                dest = dest.with_name(f"{p.stem}-{int(time.time())}.png")
+            shutil.copy2(p, dest)
+            self._thumbs.pop(p.name, None)
+            rec = {"file": dest.name, "name": card.name, "when": time.time(), "note": "已导入"}
+            self._store_imports.append(rec)
+            found.append(rec)
+        return found
+
+    def store_status(self) -> dict:
+        return {"open": self._store_win is not None, "imports": self._store_imports[-30:][::-1],
+                "downloads_dir": str(self._downloads_dir())}
+
+    def store_scan_now(self, hours: float = 24) -> dict:
+        found = self._store_scan(since=time.time() - hours * 3600)
+        return {"ok": True, "imported": [f["file"] for f in found]}
+
     # ---- logs / misc --------------------------------------------------------------------------------------
     def logs(self, lines: int = 200) -> str:
         p = self.data_dir / "logs" / "engine.log"
@@ -371,6 +466,7 @@ def main() -> None:
     data_dir = ensure_data_dir(default_data_dir())
     setup_logging(data_dir)
     api = Api(data_dir)
+    webview.settings["ALLOW_DOWNLOADS"] = True
     window = webview.create_window("Telegram Tavern", _ui_path(), js_api=api, width=1180, height=780,
                                    min_size=(900, 600))
     api.window = window

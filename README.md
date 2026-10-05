@@ -1,6 +1,6 @@
 # Telegram Tavern V3
 
-本地 Ollama 驱动的 Telegram 角色扮演 / TRPG 引擎，打包为 macOS 桌面 App（主窗口：总览 / 本地聊天 / Bots / 角色卡 / 世界书 / 模型 / 日志）。
+本地 Ollama 驱动的 Telegram 角色扮演 / TRPG 引擎，打包为 macOS 桌面 App（主窗口：总览 / 本地聊天 / Bots / 角色卡 / 角色卡商店 / 世界书 / 模型 / 日志）。
 不依赖 SillyTavern 运行时，但**角色卡（V2/V3 PNG）和世界书（World Info JSON）格式与 SillyTavern 完全兼容**，ST 可以继续当编辑器用。
 
 ## 它能做什么
@@ -9,6 +9,7 @@
 - **RPG 模式 `rpg`**：程序持有的权威世界状态（地点、敌人、NPC、存活、战斗），每轮注入到最新消息前；本地小模型从叙述中抽取新实体（含别名）、死亡、地点变化；校验到「死者复活 / 场景跳变」会在下一轮强制纠正。可选 D&D 规则引擎与导演场景控制（DungeonMaster）。每局自动记录，可导出原始日志 / 剧本 / 小说素材。
 - **世界书引擎**：ST 语义——常驻条目、主次关键词四种逻辑、正则键、扫描深度、概率、递归、token 预算、七种注入位置。角色卡内嵌书自动识别，`worlds/` 里的书可叠加。
 - **本地聊天**：在 App 窗口里直接和任意 bot 对话（对话 bot 可选角色，RPG bot 走同一套世界状态与存档），不经过 Telegram，与 Telegram 对话互相独立。
+- **角色卡商店**：App 内嵌 aicharactercards.com 浏览器窗口，登录、浏览、下载；下载到「下载」文件夹的角色卡 PNG 自动识别并导入 `characters/`。
 - **多 bot 单进程**：`bots/*.yaml` 一个文件一个 bot。
 
 ## 安装使用（App）

@@ -1,6 +1,6 @@
 # Telegram Tavern V3
 
-本地 Ollama 驱动的 Telegram 角色扮演 / TRPG 引擎，打包为 macOS 菜单栏 App。
+本地 Ollama 驱动的 Telegram 角色扮演 / TRPG 引擎，打包为 macOS 桌面 App（主窗口：总览 / Bots / 角色卡 / 世界书 / 模型 / 日志）。
 不依赖 SillyTavern 运行时，但**角色卡（V2/V3 PNG）和世界书（World Info JSON）格式与 SillyTavern 完全兼容**，ST 可以继续当编辑器用。
 
 ## 它能做什么
@@ -22,7 +22,7 @@
    worlds/         放世界书 JSON
    data/ logs/     运行数据
    ```
-3. 菜单栏 🍺 → 「打开数据目录」放入角色卡、写 yaml、填 `.env` → 「重新加载配置」→ 「启动全部 bot」。
+3. 在窗口里操作：「角色卡」导入 PNG、「世界书」导入 JSON、「Bots」新建并勾选角色卡 / 世界书、粘贴 Telegram token、「模型」检查或拉取 Ollama 模型，然后「总览」里启动或重启引擎。所有配置也可以直接改数据目录里的文件。
 
 `bots/example.yaml`（最小）：
 
@@ -47,7 +47,8 @@ export TAVERN_DATA_DIR=$PWD/data-v3        # 开发用数据目录（已 gitigno
 ./venv/bin/python -m tavern init            # 建目录与示例
 ./venv/bin/python -m tavern check           # 检查 Ollama / 模型 / 每个 bot 的配置
 ./venv/bin/python -m tavern run             # 前台运行全部 bot
-./venv/bin/python app/menubar.py            # 从源码跑菜单栏 App
+./venv/bin/python app/window.py             # 从源码跑桌面 App（TAVERN_AUTOSTART=0 不自动启 bot）
+./venv/bin/python app/menubar.py            # 备选：纯菜单栏形态
 ./scripts/build_app.sh --install            # 打包并安装到 /Applications
 ```
 
@@ -70,7 +71,7 @@ tavern/
   modes/dialogue.py   对话模式（角色切换、绑定）
   modes/rpg.py        RPG 模式（世界状态、抽取、规则、导演、存档导出）
   rpg/                game_state / state_extractor / rpg_engine / director_engine / sessions
-app/menubar.py        rumps 菜单栏 App；app/TelegramTavern.spec 打包
+app/window.py + ui.html   pywebview 桌面 App；app/menubar.py 菜单栏备选；app/TelegramTavern.spec 打包
 pipeline.py character_card.py director.py story_engine.py ollama_client.py   V1 核心，V3 复用
 docs/V3_PLAN.md docs/V3_HANDOFF.md   计划与交接
 ```

@@ -1,19 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
 # PyInstaller spec — build with:  ./venv/bin/pyinstaller app/TelegramTavern.spec --noconfirm
 import os
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
 
-hidden = (collect_submodules("tavern") + collect_submodules("telegram") + collect_submodules("aiohttp")
+wv_datas, wv_bins, wv_hidden = collect_all("webview")
+hidden = (wv_hidden + collect_submodules("tavern") + collect_submodules("telegram") + collect_submodules("aiohttp")
           + ["yaml", "dotenv", "PIL", "PIL.Image", "PIL.PngImagePlugin", "rumps", "character_card",
              "pipeline", "prompt_item", "director", "story_engine", "ollama_client", "db", "config"])
 
 a = Analysis(
-    [os.path.join(ROOT, "app", "menubar.py")],
+    [os.path.join(ROOT, "app", "window.py")],
     pathex=[ROOT],
-    binaries=[],
-    datas=[],
+    binaries=wv_bins,
+    datas=wv_datas + [(os.path.join(ROOT, "app", "ui.html"), ".")],
     hiddenimports=hidden,
     hookspath=[],
     runtime_hooks=[],
@@ -37,7 +38,7 @@ app = BUNDLE(
     icon=None,
     bundle_identifier="com.leoredrum.telegramtavern",
     info_plist={
-        "LSUIElement": True,                 # menu-bar only, no Dock icon
+        "LSUIElement": False,                # normal window app with Dock icon
         "CFBundleShortVersionString": "3.0.0",
         "CFBundleName": "TelegramTavern",
         "NSHighResolutionCapable": True,

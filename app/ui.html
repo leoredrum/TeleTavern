@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>Telegram Tavern</title>
+<style>
+  :root { --bg:#f5f5f7; --panel:#fff; --line:#e3e3e8; --fg:#1d1d1f; --muted:#6e6e73; --accent:#0a84ff; --ok:#34c759; --warn:#ff9f0a; --bad:#ff3b30; --side:#ececf1; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#1e1e20; --panel:#2a2a2d; --line:#3a3a3e; --fg:#f2f2f4; --muted:#9a9aa0; --side:#242427; } }
+  * { box-sizing:border-box; }
+  body { margin:0; font:14px -apple-system,"PingFang SC","Helvetica Neue",sans-serif; color:var(--fg); background:var(--bg); display:flex; height:100vh; -webkit-user-select:none; }
+  nav { width:200px; background:var(--side); border-right:1px solid var(--line); padding:18px 10px; display:flex; flex-direction:column; gap:4px; }
+  nav h1 { font-size:15px; margin:0 8px 14px; letter-spacing:.2px; }
+  nav button { all:unset; display:flex; align-items:center; gap:10px; padding:9px 12px; border-radius:8px; cursor:pointer; color:var(--fg); }
+  nav button:hover { background:rgba(127,127,127,.12); }
+  nav button.active { background:var(--accent); color:#fff; }
+  nav .spacer { flex:1; }
+  nav .foot { font-size:11px; color:var(--muted); padding:0 10px; word-break:break-all; -webkit-user-select:text; }
+  main { flex:1; overflow:auto; padding:22px 26px; }
+  section { display:none; } section.active { display:block; }
+  h2 { margin:0 0 14px; font-size:20px; font-weight:600; }
+  .row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(230px,1fr)); gap:12px; }
+  .pill { display:inline-block; padding:2px 9px; border-radius:999px; font-size:12px; background:rgba(127,127,127,.15); }
+  .pill.ok { background:rgba(52,199,89,.18); color:var(--ok); } .pill.bad { background:rgba(255,59,48,.15); color:var(--bad); } .pill.warn { background:rgba(255,159,10,.18); color:var(--warn); }
+  button.btn { border:1px solid var(--line); background:var(--panel); color:var(--fg); padding:7px 13px; border-radius:8px; cursor:pointer; font-size:13px; }
+  button.btn.primary { background:var(--accent); color:#fff; border-color:var(--accent); }
+  button.btn.danger { color:var(--bad); }
+  button.btn:disabled { opacity:.5; cursor:default; }
+  input, select, textarea { font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:6px 9px; -webkit-user-select:text; }
+  textarea { width:100%; min-height:80px; resize:vertical; font-family:ui-monospace,Menlo,monospace; font-size:12px; }
+  label.f { display:block; margin:10px 0 4px; font-size:12px; color:var(--muted); }
+  .two { display:grid; grid-template-columns:1fr 1fr; gap:0 18px; }
+  .muted { color:var(--muted); font-size:12px; }
+  pre.log { background:#111; color:#ddd; padding:12px; border-radius:10px; font:12px ui-monospace,Menlo,monospace; max-height:calc(100vh - 160px); overflow:auto; white-space:pre-wrap; -webkit-user-select:text; }
+  .thumb { width:72px; height:96px; object-fit:cover; border-radius:8px; background:#8882; flex:none; }
+  .char { display:flex; gap:12px; }
+  .char .meta { min-width:0; } .char .meta b { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .chk { display:flex; align-items:center; gap:8px; margin:6px 0; }
+  .list { max-height:180px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:6px 10px; background:var(--bg); }
+  .toast { position:fixed; right:18px; bottom:18px; background:var(--fg); color:var(--bg); padding:10px 14px; border-radius:10px; opacity:0; transition:.2s; pointer-events:none; }
+  .toast.show { opacity:1; }
+  code { -webkit-user-select:text; }
+</style>
+</head>
+<body>
+<nav>
+  <h1>🍺 Telegram Tavern</h1>
+  <button data-tab="overview" class="active">📊 总览</button>
+  <button data-tab="bots">🤖 Bots</button>
+  <button data-tab="characters">🎭 角色卡</button>
+  <button data-tab="worlds">📚 世界书</button>
+  <button data-tab="models">🧠 模型</button>
+  <button data-tab="logs">📜 日志</button>
+  <div class="spacer"></div>
+  <div class="foot" id="datadir"></div>
+</nav>
+<main>
+  <section id="overview" class="active">
+    <h2>总览</h2>
+    <div class="card">
+      <div class="row">
+        <span id="eng-pill" class="pill">…</span>
+        <button class="btn primary" id="btn-start" onclick="engine('start')">启动全部 bot</button>
+        <button class="btn" id="btn-stop" onclick="engine('stop')">停止</button>
+        <button class="btn" onclick="engine('restart')">重启（应用配置更改）</button>
+        <span class="muted" id="ollama-brief"></span>
+      </div>
+      <div class="muted" id="last-error" style="margin-top:8px;color:var(--bad)"></div>
+    </div>
+    <div class="grid" id="ov-bots"></div>
+    <div class="card muted">数据目录：<code id="datadir2"></code> &nbsp;
+      <button class="btn" onclick="api('open_path','root')">在 Finder 中打开</button>
+    </div>
+  </section>
+
+  <section id="bots">
+    <div class="row" style="justify-content:space-between"><h2>Bots</h2>
+      <div class="row"><input id="new-bot-name" placeholder="新 bot 名称" style="width:160px">
+        <select id="new-bot-mode"><option value="dialogue">dialogue 对话</option><option value="rpg">rpg 冒险</option></select>
+        <button class="btn primary" onclick="newBot()">新建</button></div></div>
+    <div class="row" style="align-items:flex-start;gap:16px">
+      <div style="width:260px;flex:none" id="bot-list"></div>
+      <div style="flex:1;min-width:0" id="bot-editor"><div class="card muted">选择左侧一个 bot 进行编辑。</div></div>
+    </div>
+  </section>
+
+  <section id="characters">
+    <div class="row" style="justify-content:space-between"><h2>角色卡</h2>
+      <div class="row"><button class="btn" onclick="importFiles('characters')">导入 PNG…</button>
+        <button class="btn" onclick="api('open_path','characters')">打开文件夹</button></div></div>
+    <p class="muted">SillyTavern V2/V3 角色卡。内嵌世界书会自动识别并注入。放入文件夹后，在 Bots 里勾选给某个 bot。</p>
+    <div class="grid" id="char-grid"></div>
+  </section>
+
+  <section id="worlds">
+    <div class="row" style="justify-content:space-between"><h2>世界书</h2>
+      <div class="row"><button class="btn" onclick="importFiles('worlds')">导入 JSON…</button>
+        <button class="btn" onclick="api('open_path','worlds')">打开文件夹</button></div></div>
+    <p class="muted">SillyTavern World Info JSON。可以同时给一个 bot 叠加多本，和角色卡内嵌书一起生效。</p>
+    <div class="grid" id="world-grid"></div>
+  </section>
+
+  <section id="models">
+    <h2>模型（Ollama）</h2>
+    <div class="card" id="ollama-card"></div>
+    <div class="card">
+      <div class="row"><input id="pull-name" placeholder="模型名，例如 qwen3:14b" style="width:420px">
+        <button class="btn primary" onclick="pull()">拉取</button>
+        <button class="btn" onclick="api('open_url','https://ollama.com/search')">浏览模型库</button></div>
+      <div class="muted" style="margin-top:8px">RP 角色扮演建议：无审查微调模型；RPG 状态抽取用 qwen3:14b 或更小。</div>
+      <div id="pulls" style="margin-top:8px"></div>
+    </div>
+  </section>
+
+  <section id="logs">
+    <div class="row" style="justify-content:space-between"><h2>日志</h2>
+      <div class="row"><label class="chk"><input type="checkbox" id="log-follow" checked> 自动刷新</label>
+        <button class="btn" onclick="api('open_path','logs')">打开日志文件夹</button></div></div>
+    <pre class="log" id="log"></pre>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let STATE = null, CHARS = null, WORLDS = null, CUR_BOT = null, OLLAMA = null;
+
+async function api(name, ...args) {
+  if (!window.pywebview) { await new Promise(r => window.addEventListener('pywebviewready', r, {once:true})); }
+  return window.pywebview.api[name](...args);
+}
+function toast(msg) { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); setTimeout(() => t.classList.remove('show'), 2200); }
+
+document.querySelectorAll('nav button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
+function showTab(id) {
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === id));
+  document.querySelectorAll('main section').forEach(s => s.classList.toggle('active', s.id === id));
+  if (id === 'characters') loadChars();
+  if (id === 'worlds') loadWorlds();
+  if (id === 'bots') renderBotList();
+  if (id === 'logs') refreshLog();
+  if (id === 'models') renderOllama();
+}
+
+async function engine(cmd) { await api(cmd); toast(cmd === 'stop' ? '已停止' : '引擎启动中…'); setTimeout(refresh, 800); }
+
+async function refresh() {
+  try { STATE = await api('state'); } catch (e) { return; }
+  OLLAMA = STATE.ollama;
+  $('#datadir').textContent = STATE.data_dir; $('#datadir2').textContent = STATE.data_dir;
+  const running = STATE.bots.filter(b => (b.status||'').startsWith('running')).length;
+  const pill = $('#eng-pill');
+  pill.textContent = STATE.running ? `运行中 · ${running} 个 bot` : '已停止';
+  pill.className = 'pill ' + (STATE.running ? (running ? 'ok' : 'warn') : '');
+  $('#btn-start').disabled = STATE.running; $('#btn-stop').disabled = !STATE.running;
+  $('#last-error').textContent = STATE.last_error || '';
+  $('#ollama-brief').textContent = OLLAMA.ok ? `Ollama 正常 · ${OLLAMA.models.length} 个模型` + (OLLAMA.missing.length ? ` · 缺少 ${OLLAMA.missing.length} 个` : '') : 'Ollama 未连接';
+  $('#ov-bots').innerHTML = STATE.bots.map(b => {
+    const st = b.status || ''; const cls = st.startsWith('running') ? 'ok' : (st === 'disabled' || st === 'stopped' ? '' : (st ? 'bad' : ''));
+    return `<div class="card"><div class="row" style="justify-content:space-between"><b>${esc(b.name)}</b><span class="pill">${b.mode}</span></div>
+      <div style="margin:6px 0"><span class="pill ${cls}">${esc(st || (b.enabled ? '待启动' : '已禁用'))}</span></div>
+      <div class="muted">${b.characters.length} 张卡 · ${b.worlds.length} 本世界书</div>
+      <div class="muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.model)}</div>
+      ${b.problems.length ? `<div style="color:var(--warn);font-size:12px;margin-top:6px">⚠ ${esc(b.problems.join('；'))}</div>` : ''}
+      <div class="row" style="margin-top:8px"><button class="btn" onclick="editBot('${esc(b.name)}')">编辑</button>
+      <button class="btn" onclick="toggleBot('${esc(b.name)}')">${b.enabled ? '禁用' : '启用'}</button></div></div>`; }).join('') || '<div class="card muted">还没有 bot，去 Bots 页新建。</div>';
+  if ($('#bots').classList.contains('active')) renderBotList();
+  if ($('#models').classList.contains('active')) renderOllama();
+}
+
+function renderBotList() {
+  if (!STATE) return;
+  $('#bot-list').innerHTML = STATE.bots.map(b => `<div class="card" style="cursor:pointer;padding:10px 12px;${CUR_BOT===b.name?'border-color:var(--accent)':''}" onclick="editBot('${esc(b.name)}')">
+     <b>${esc(b.name)}</b> <span class="pill">${b.mode}</span><div class="muted">${b.enabled ? '启用' : '禁用'} · ${esc(b.status||'')}</div></div>`).join('') || '<div class="muted">无</div>';
+}
+async function toggleBot(name) { await api('toggle_bot', name); toast('已修改，重启引擎后生效'); refresh(); }
+async function newBot() {
+  const name = $('#new-bot-name').value.trim(); if (!name) return toast('请输入名称');
+  const r = await api('new_bot', name, $('#new-bot-mode').value); if (!r.ok) return toast(r.error);
+  $('#new-bot-name').value = ''; await refresh(); showTab('bots'); editBot(name);
+}
+async function editBot(name) {
+  CUR_BOT = name; showTab('bots'); renderBotList();
+  const b = await api('get_bot', name); if (!CHARS) CHARS = await api('characters'); if (!WORLDS) WORLDS = await api('worlds');
+  const tokens = await api('tokens'); const tok = tokens.find(t => t.key === b.token_env);
+  const models = (OLLAMA && OLLAMA.models || []).map(m => `<option value="${esc(m.name)}">`).join('');
+  const chk = (list, field, sel) => list.map(x => `<label class="chk"><input type="checkbox" data-field="${field}" value="${esc(x)}" ${sel.includes(x)?'checked':''}> ${esc(x)}</label>`).join('') || '<span class="muted">文件夹为空</span>';
+  $('#bot-editor').innerHTML = `<div class="card">
+    <div class="row" style="justify-content:space-between"><h3 style="margin:0">${esc(name)}</h3>
+      <div class="row"><button class="btn primary" onclick="saveBot()">保存</button><button class="btn danger" onclick="delBot()">删除</button></div></div>
+    <div class="two">
+      <div><label class="f">模式</label><select id="f-mode"><option value="dialogue" ${b.mode==='dialogue'?'selected':''}>dialogue 对话（多角色切换）</option><option value="rpg" ${b.mode==='rpg'?'selected':''}>rpg 冒险（世界状态）</option></select></div>
+      <div><label class="f">启用</label><label class="chk"><input type="checkbox" id="f-enabled" ${b.enabled?'checked':''}> 随引擎启动</label></div>
+      <div><label class="f">Token 变量名（.env）</label><input id="f-token_env" value="${esc(b.token_env)}" style="width:100%"></div>
+      <div><label class="f">Telegram Bot Token ${tok && tok.set ? `<span class="pill ok">已设置 ${esc(tok.hint)}</span>` : '<span class="pill warn">未设置</span>'}</label>
+        <div class="row"><input id="f-token" type="password" placeholder="从 @BotFather 获取后粘贴" style="flex:1"><button class="btn" onclick="saveToken()">写入 .env</button></div></div>
+      <div><label class="f">模型</label><input id="f-model" list="models" value="${esc(b.model)}" style="width:100%"><datalist id="models">${models}</datalist></div>
+      <div><label class="f">回复语言 / 用户称呼</label><div class="row"><input id="f-reply_language" value="${esc(b.reply_language)}" style="width:120px"><input id="f-user_label" value="${esc(b.user_label)}" style="width:120px"></div></div>
+      <div><label class="f">角色卡（dialogue 可多选；rpg 取第一张）</label><div class="list">${chk(CHARS.map(c=>c.file),'characters',b.characters||[])}</div></div>
+      <div><label class="f">叠加世界书</label><div class="list">${chk(WORLDS.map(w=>w.file),'worlds',b.worlds||[])}</div></div>
+      <div><label class="f">max_tokens / max_context / 历史条数</label><div class="row"><input id="f-max_tokens" value="${b.max_tokens}" style="width:90px"><input id="f-max_context" value="${b.max_context}" style="width:90px"><input id="f-history_limit" value="${b.history_limit}" style="width:90px"></div></div>
+      <div><label class="f">temperature</label><input id="f-temperature" value="${b.temperature}" style="width:90px"></div>
+    </div>
+    <div id="rpg-fields" style="${b.mode==='rpg'?'':'display:none'}">
+      <label class="f">RPG 选项</label>
+      <div class="row"><label class="chk"><input type="checkbox" id="f-extract" ${b.extract?'checked':''}> LLM 世界状态抽取</label>
+        <input id="f-extract_model" list="models" value="${esc(b.extract_model)}" style="width:200px" title="抽取模型">
+        <label class="chk"><input type="checkbox" id="f-rules" ${b.rules?'checked':''}> D&amp;D 规则引擎</label>
+        <label class="chk"><input type="checkbox" id="f-scenes" ${b.scenes?'checked':''}> 导演场景控制</label>
+        <label class="chk"><input type="checkbox" id="f-first_mes_translate" ${b.first_mes_translate?'checked':''}> 开场白过翻译表</label></div>
+      <label class="f">新游戏开场指令（空则直接发角色卡开场白）</label><textarea id="f-newgame_prompt">${esc(b.newgame_prompt)}</textarea>
+      <label class="f">/continue 指令</label><input id="f-continue_prompt" value="${esc(b.continue_prompt)}" style="width:100%">
+      <label class="f">翻译表（每行 原文=中文）</label><textarea id="f-translation_table">${esc((b.translation_table||[]).map(p=>Array.isArray(p)?p.join('='):p).join('\n'))}</textarea>
+    </div>
+    <div id="dlg-fields" style="${b.mode==='dialogue'?'':'display:none'}">
+      <label class="f">对话选项</label>
+      <label class="chk"><input type="checkbox" id="f-story_engine" ${b.story_engine?'checked':''}> 防卡壳剧情引擎</label>
+      <label class="f">启用 Director 反套路规则的角色卡</label><div class="list">${chk(CHARS.map(c=>c.file),'director_characters',b.director_characters||[])}</div>
+    </div>
+    <label class="f">语言覆盖 / 系统指令（留空用默认「用 ${esc(b.reply_language)} 回复」）</label><textarea id="f-language_override" style="min-height:140px">${esc(b.language_override)}</textarea>
+  </div>`;
+  $('#f-mode').onchange = e => { $('#rpg-fields').style.display = e.target.value === 'rpg' ? '' : 'none'; $('#dlg-fields').style.display = e.target.value === 'dialogue' ? '' : 'none'; };
+}
+function checked(field) { return [...document.querySelectorAll(`input[data-field="${field}"]:checked`)].map(i => i.value); }
+async function saveBot() {
+  const v = id => $('#f-' + id).value, c = id => $('#f-' + id).checked;
+  const data = { mode: v('mode'), enabled: c('enabled'), token_env: v('token_env').trim(), model: v('model').trim(),
+    reply_language: v('reply_language'), user_label: v('user_label'), characters: checked('characters'), worlds: checked('worlds'),
+    max_tokens: v('max_tokens'), max_context: v('max_context'), history_limit: v('history_limit'), temperature: v('temperature'),
+    extract: c('extract'), extract_model: v('extract_model').trim(), rules: c('rules'), scenes: c('scenes'), first_mes_translate: c('first_mes_translate'),
+    newgame_prompt: v('newgame_prompt'), continue_prompt: v('continue_prompt'), translation_table: v('translation_table'),
+    story_engine: c('story_engine'), director_characters: checked('director_characters'), language_override: v('language_override') };
+  const r = await api('save_bot', CUR_BOT, data);
+  toast(r.problems && r.problems.length ? '已保存，但有问题：' + r.problems.join('；') : '已保存。重启引擎后生效。');
+  refresh();
+}
+async function saveToken() {
+  const key = $('#f-token_env').value.trim(), val = $('#f-token').value.trim(); if (!val) return toast('请粘贴 token');
+  const r = await api('set_token', key, val); toast(r.ok ? 'token 已写入 .env' : r.error); if (r.ok) { $('#f-token').value = ''; editBot(CUR_BOT); }
+}
+async function delBot() { if (!confirm(`删除 bot「${CUR_BOT}」的配置？（不删除角色卡与数据）`)) return; await api('delete_bot', CUR_BOT); CUR_BOT = null; $('#bot-editor').innerHTML = '<div class="card muted">已删除。</div>'; refresh(); }
+
+async function loadChars() {
+  CHARS = await api('characters');
+  $('#char-grid').innerHTML = CHARS.map(c => `<div class="card char"><img class="thumb" src="${c.thumb}" alt="">
+    <div class="meta"><b title="${esc(c.file)}">${esc(c.name)}</b><div class="muted">${c.book ? `📚 内嵌世界书 ${c.book} 条` : '无内嵌世界书'} · ${c.greetings} 个开场白 · ${c.size_kb} KB</div>
+    <div class="muted" style="margin-top:4px;max-height:48px;overflow:hidden">${esc(c.desc||'')}</div>
+    ${c.book ? `<button class="btn" style="margin-top:6px" onclick="previewBook('${esc(c.file)}')">查看世界书</button>` : ''}
+    ${c.error ? `<div style="color:var(--bad)">${esc(c.error)}</div>` : ''}</div></div>`).join('') || '<div class="card muted">文件夹为空。点「导入 PNG…」。</div>';
+}
+async function previewBook(file) {
+  const r = await api('card_book_preview', file); if (!r.ok) return toast(r.error);
+  alert(`${r.name} — 内嵌世界书（前 ${r.entries.length} 条）\n\n` + r.entries.map(e => `${e.constant ? '[常驻] ' : ''}${e.keys.join(', ') || '(无键)'}\n  ${e.content}`).join('\n\n'));
+}
+async function loadWorlds() {
+  WORLDS = await api('worlds');
+  $('#world-grid').innerHTML = WORLDS.map(w => `<div class="card"><b>${esc(w.file)}</b><div class="muted">${w.entries} 条 · 常驻 ${w.constant} · 关键词 ${w.keys}</div>${w.error?`<div style="color:var(--bad)">${esc(w.error)}</div>`:''}</div>`).join('') || '<div class="card muted">文件夹为空。点「导入 JSON…」。</div>';
+}
+async function importFiles(kind) { const r = await api('import_files', kind); if (!r.ok) return toast(r.error || '取消'); toast(`已导入 ${r.copied.length} 个文件`); CHARS = WORLDS = null; kind === 'characters' ? loadChars() : loadWorlds(); }
+
+function renderOllama() {
+  const o = OLLAMA; if (!o) return;
+  $('#ollama-card').innerHTML = o.ok
+    ? `<div class="row"><span class="pill ok">Ollama 运行中</span><span class="muted">${esc(o.url)}</span></div>
+       ${o.missing.length ? `<div style="margin:8px 0;color:var(--warn)">⚠ bot 需要但未安装：${o.missing.map(m=>`<code>${esc(m)}</code> <button class="btn" onclick="pullName('${esc(m)}')">拉取</button>`).join(' ')}</div>` : '<div class="muted" style="margin:8px 0">所有启用 bot 需要的模型都已安装。</div>'}
+       <table style="width:100%;border-collapse:collapse;font-size:13px">${o.models.map(m=>`<tr><td style="padding:4px 0;border-top:1px solid var(--line)"><code>${esc(m.name)}</code></td><td style="text-align:right;border-top:1px solid var(--line)" class="muted">${m.size_gb} GB</td></tr>`).join('')}</table>`
+    : `<div class="row"><span class="pill bad">Ollama 未连接</span><span class="muted">${esc(o.error||'')}</span></div>
+       <div class="row" style="margin-top:10px">${o.installed ? '<button class="btn primary" onclick="api(\'ollama_serve\').then(()=>setTimeout(refresh,2500))">启动 Ollama</button>' : '<button class="btn primary" onclick="api(\'open_url\',\'https://ollama.com/download\')">下载安装 Ollama</button>'}</div>`;
+  const pulls = Object.entries(o.pulls || {});
+  $('#pulls').innerHTML = pulls.map(([n, s]) => `<div><code>${esc(n)}</code> — <span class="pill ${s==='done'?'ok':(s.startsWith('failed')?'bad':'warn')}">${esc(s)}</span></div>`).join('');
+}
+async function pullName(n) { await api('pull_model', n); toast('开始拉取 ' + n); }
+async function pull() { const n = $('#pull-name').value.trim(); if (!n) return; pullName(n); }
+
+async function refreshLog() { if (!$('#logs').classList.contains('active')) return; const el = $('#log'); const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20; el.textContent = await api('logs', 300); if (atBottom) el.scrollTop = el.scrollHeight; }
+
+refresh(); setInterval(refresh, 3000); setInterval(() => { if ($('#log-follow').checked) refreshLog(); }, 2000);
+</script>
+</body>
+</html>

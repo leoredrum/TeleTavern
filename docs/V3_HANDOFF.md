@@ -4,7 +4,7 @@
 
 ## 当前运行状态（切换已完成）
 
-- **正式入口**：`/Applications/TelegramTavern.app`（菜单栏 🍺/🍻），数据目录
+- **正式入口**：`/Applications/TelegramTavern.app`（pywebview 桌面窗口，`app/window.py` + `app/ui.html`；菜单栏形态 `app/menubar.py` 保留为备选），数据目录
   `~/Library/Application Support/TelegramTavern/`。启动即自动拉起四个 bot：
   `single`（@leopenelop_bot，dialogue，35 张卡）、`dungeon-master`（@leodungeonmaster_bot，rpg + rules + scenes）、
   `mushoku`（@leoaqua_bot，rpg）、`saengmyeong`（@leosaengmyeong_bot，rpg + 翻译表）。
@@ -22,7 +22,7 @@
 | 1a | `tavern/worldinfo.py` ST 兼容世界书引擎 | `tests/test_worldinfo.py` 29 项 PASS |
 | 1b | `pipeline.py`：世界书接入、`extra_items`、token 预算裁剪、ST depth 语义、**PHI 改到历史之后**（V1 错放在历史之前） | `tests/test_pipeline_v3.py` 8 项 PASS |
 | 1c | `tavern/config.py` yaml 配置；`tavern/engine.py` CharacterRuntime；`tavern/storage.py`；`modes/dialogue.py`（SINGLE 移植）；`modes/rpg.py` + `rpg/`（DM 四引擎原样移植 + sessions/导出）；`manager.py` 多 bot；`cli.py` | `tests/test_rpg_v3.py` 12 项 PASS；真实 Ollama 生成冒烟 9.6s / 88% 中文 / 世界书命中 |
-| 2 | `app/menubar.py`（rumps）+ `app/TelegramTavern.spec` + `scripts/build_app.sh`，38 MB .app | 安装版启动，4 bot 轮询 |
+| 2 | `app/window.py` + `app/ui.html`（pywebview 窗口：总览/Bots/角色卡/世界书/模型/日志，token 写入 .env，导入卡与世界书，拉模型）；`app/menubar.py` 备选；spec + `scripts/build_app.sh`，42 MB .app | 安装版启动，4 bot 轮询；Api 方法 headless 冒烟通过 |
 | 3 | 四 token 迁入 `.env`，旧 bot 停止，App 接管 | engine.log 四条 `polling as` |
 
 ## 日常操作

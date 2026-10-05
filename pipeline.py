@@ -62,6 +62,14 @@ DEBUG_PROMPT = False
 PHASE1_ENABLED = os.environ.get("PHASE1_ENABLED", "true").lower() in ("1", "true", "yes")
 
 
+def _estimate_tokens(text: str) -> int:
+    """CJK ≈ 1 token/char, other ≈ 1 token/4 chars (tokenizer-free)."""
+    if not text:
+        return 0
+    cjk = sum(1 for ch in text if "぀" <= ch <= "ヿ" or "㐀" <= ch <= "鿿" or "가" <= ch <= "힯")
+    return cjk + (len(text) - cjk + 3) // 4
+
+
 def naive_assemble(card: Any, history: list[dict], user_message: str) -> list[dict]:
     """Naive prompt assembly for AB Test comparison (Phase 1 OFF baseline).
 
@@ -151,6 +159,11 @@ class PromptPipeline:
     memory_manager: Any = None         # Phase 3
     story_state: Any = None            # Phase 1 Story Engine — StoryState or None
     story_engine: Any = None           # Phase 1 Story Engine — StoryEngine or None
+    # V3: per-turn injected items (world-state anchor, custom language override, ...)
+    extra_items: list = field(default_factory=list)
+    # V3: token budget — history is trimmed oldest-first to fit
+    max_context_tokens: int = 16384
+    reserve_tokens: int = 4096
 
     def build_items(
         self,
@@ -184,8 +197,7 @@ class PromptPipeline:
         if director_item:
             items.append(director_item)
 
-        # ── 3/5: Lorebook (Phase 2 — stubbed) ──────────────────────────────
-        # items.extend(self._build_lorebook(ctx, history))  # Phase 2
+
 
         # ── 4: Character Definitions ─────────────────────────────────────────
         items.extend(self._build_character_defs(ctx))
@@ -197,6 +209,7 @@ class PromptPipeline:
 
         # ── 8: Example Dialogues ────────────────────────────────────────────
         items.extend(self._build_examples(ctx))
+        items.extend(self._build_lorebook(history, user_message))   # V3 World Info
 
         # ── 9: Summary (Phase 3 — stubbed) ─────────────────────────────────
         # items.extend(self._build_summary(ctx))  # Phase 3
@@ -216,6 +229,7 @@ class PromptPipeline:
         phi_item = self._build_post_history(ctx)
         if phi_item:
             items.append(phi_item)
+        items.extend(i for i in (self.extra_items or []) if i is not None)
 
         # ── Final: user message as assistant trigger ───────────────────────
         # (actually appended by bot.py; pipeline returns items only)
@@ -236,51 +250,78 @@ class PromptPipeline:
         ready to pass to ollama_client.stream_chat().
         """
         items = self.build_items(history, user_message)
-
-        # Sort: absolute items by position+priority, depth items separate.
-        # Chat history items (CHAT_HISTORY position) are excluded here because
-        # the raw history is added separately in step 2 — including them here
-        # would duplicate every history turn in the final prompt.
-        absolute_items = sorted(
-            [i for i in items if i.is_absolute and i.position != PromptPosition.CHAT_HISTORY],
-            key=lambda i: (i.position.value, i.priority)
-        )
-        depth_items = sorted(
-            [i for i in items if i.is_in_chat],
-            key=lambda i: (i.depth, i.priority)
-        )
-
-        messages: list[dict] = []
-
-        # 1. Add all absolute items (system role = rendered as text)
-        for item in absolute_items:
-            if item.enabled and item.content:
-                messages.append({"role": item.role, "content": item.content})
-
-        # 2. Add chat history, interleaving depth injections at correct depth
-        # depth=0 means after last message (before the new user message)
-        # depth=N means before the N-th-from-last message
+        hist_pos = PromptPosition.CHAT_HISTORY
+        pre = sorted([i for i in items if i.is_absolute and i.position < hist_pos
+                      and i.enabled and i.content], key=lambda i: (i.position.value, i.priority))
+        post = sorted([i for i in items if i.is_absolute and i.position > hist_pos
+                       and i.enabled and i.content], key=lambda i: (i.position.value, i.priority))
+        depth_items = sorted([i for i in items if i.is_in_chat and i.enabled and i.content],
+                             key=lambda i: (i.depth, i.priority))
         history_msgs = [m for m in history if m.get("content")]
-        depth_idx = 0  # pointer into depth_items
 
-        if depth_items:
-            depth_map: dict[int, list[PromptItem]] = {}
-            for di in depth_items:
-                if di.enabled and di.content:
-                    depth_map.setdefault(di.depth, []).append(di)
+        # V3 token budget: fixed blocks first, then trim history oldest-first.
+        fixed = sum(_estimate_tokens(i.content) for i in pre + post + depth_items)
+        budget = max(512, self.max_context_tokens - self.reserve_tokens - fixed)
+        history_msgs = self._trim_history(history_msgs, budget)
 
-            for i, msg in enumerate(history_msgs):
-                effective_depth = len(history_msgs) - i - 1
-                if effective_depth in depth_map:
-                    for di in depth_map[effective_depth]:
-                        messages.append({"role": di.role, "content": di.content})
-                messages.append({"role": msg["role"], "content": msg["content"]})
-        else:
-            for msg in history_msgs:
-                if msg.get("content"):
-                    messages.append({"role": msg["role"], "content": msg["content"]})
+        messages: list[dict] = [{"role": i.role, "content": i.content} for i in pre]
 
+        # ST depth semantics: depth d is inserted before the d-th message from the
+        # end; depth 0 goes after the last message; deeper than history → first.
+        depth_map: dict[int, list[PromptItem]] = {}
+        for di in depth_items:
+            depth_map.setdefault(di.depth, []).append(di)
+        n = len(history_msgs)
+        for d in sorted((d for d in depth_map if d > n), reverse=True):
+            messages.extend({"role": di.role, "content": di.content} for di in depth_map[d])
+        for i, msg in enumerate(history_msgs):
+            for di in depth_map.get(n - i, []):
+                messages.append({"role": di.role, "content": di.content})
+            messages.append({"role": msg["role"], "content": msg["content"]})
+        for di in depth_map.get(0, []):
+            messages.append({"role": di.role, "content": di.content})
+
+        messages.extend({"role": i.role, "content": i.content} for i in post)
         return messages
+
+    @staticmethod
+    def _trim_history(history_msgs: list[dict], budget_tokens: int) -> list[dict]:
+        """Drop oldest messages until the history fits the token budget (keep ≥2)."""
+        msgs = list(history_msgs)
+        total = sum(_estimate_tokens(m.get("content", "")) for m in msgs)
+        while len(msgs) > 2 and total > budget_tokens:
+            total -= _estimate_tokens(msgs[0].get("content", ""))
+            msgs.pop(0)
+        return msgs
+
+    def _build_lorebook(self, history: list[dict], user_message: str) -> list[PromptItem]:
+        """V3 World Info: map WorldInfoResult onto pipeline positions."""
+        if self.lorebook is None:
+            return []
+        try:
+            res = self.lorebook.activate(history, user_message)
+        except Exception as e:  # noqa: BLE001
+            log.warning("worldinfo activation failed: %s", e)
+            return []
+        self.last_worldinfo = res
+        items: list[PromptItem] = []
+
+        def add(iid, content, position, priority=0, depth=0, role="system"):
+            if content and content.strip():
+                items.append(PromptItem(id=iid, role=role, content=content.strip(), enabled=True,
+                                        position=position, priority=priority, depth=depth,
+                                        source="worldinfo"))
+
+        add("wi_before", res.before_char, PromptPosition.LORE_BEFORE)
+        add("wi_after", res.after_char, PromptPosition.LORE_AFTER)
+        add("wi_em_top", res.em_top, PromptPosition.LORE_EXAMPLES)
+        add("wi_em_bottom", res.em_bottom, PromptPosition.EXAMPLES, priority=99)
+        add("wi_an_top", res.an_top, PromptPosition.DEPTH_INJECTIONS, priority=0, depth=4)
+        add("wi_an_bottom", res.an_bottom, PromptPosition.DEPTH_INJECTIONS, priority=1, depth=4)
+        for k, (depth, role, content) in enumerate(res.depth_entries):
+            add(f"wi_depth_{k}", content, PromptPosition.DEPTH_INJECTIONS,
+                priority=10 + k, depth=depth, role=role)
+        return items
 
     def debug_report(
         self,

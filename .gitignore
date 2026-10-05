@@ -70,3 +70,9 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+
+# V3 engine runtime data (dev)
+data-v3/
+venv/
+build/
+dist/

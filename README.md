@@ -1,130 +1,81 @@
-# Python Telegram Tavern — local Qwen-powered character bots
+# Telegram Tavern V3
 
-Telegram AI 酒馆 — 一个 Telegram Bot 入口、本地 Ollama + Qwen 模型驱动的角色扮演系统。
+本地 Ollama 驱动的 Telegram 角色扮演 / TRPG 引擎，打包为 macOS 菜单栏 App。
+不依赖 SillyTavern 运行时，但**角色卡（V2/V3 PNG）和世界书（World Info JSON）格式与 SillyTavern 完全兼容**，ST 可以继续当编辑器用。
 
-> **当前阶段：Phase 1 — Prompt Pipeline（已完成）**
->
-> 已实现：Character Card v2/v3 加载、可插拔 Prompt Pipeline、Director Prompt 配置、
-> 三个角色实例（Penelope / June / Aqua）、`/debug` 命令。
->
-> 详见 [[docs/architecture.md]] 与 [[docs/phase1_delivery.md]]。
->
-> 路线图：[[docs/roadmap]]（Phase 2/3/4/5 待启动 — 见 Obsidian vault `Projects/telegram-tavern/`）。
+## 它能做什么
 
-## 三个 Bot 实例
+- **对话模式 `dialogue`**：一个 bot 挂任意多张角色卡，`/character` 按钮切换，每个 Telegram 聊天绑定自己的角色；可选 Director 反套路规则与防卡壳剧情引擎。
+- **RPG 模式 `rpg`**：程序持有的权威世界状态（地点、敌人、NPC、存活、战斗），每轮注入到最新消息前；本地小模型从叙述中抽取新实体（含别名）、死亡、地点变化；校验到「死者复活 / 场景跳变」会在下一轮强制纠正。可选 D&D 规则引擎与导演场景控制（DungeonMaster）。每局自动记录，可导出原始日志 / 剧本 / 小说素材。
+- **世界书引擎**：ST 语义——常驻条目、主次关键词四种逻辑、正则键、扫描深度、概率、递归、token 预算、七种注入位置。角色卡内嵌书自动识别，`worlds/` 里的书可叠加。
+- **多 bot 单进程**：`bots/*.yaml` 一个文件一个 bot。
 
-| 实例路径 | 角色卡 | Token 注入方式 |
-|------|--------|-----------------|
-| `~/Documents/telegramtavern/penelope/` | Penelope (`data/Penelope3.png`) | `penelope/.env` |
-| `~/Documents/telegramtavern/june/`     | June (`data/June.png`)          | `june/.env`     |
-| `~/Documents/telegramtavern/aqua/`     | Aqua (`data/Aqua.png`)          | `aqua/.env`     |
+## 安装使用（App）
 
-> 每个 bot 实例是独立的 deployment：自带 venv、`.env`、`data/`、日志。
-> 本仓库是它们的**规范代码源**；`.py` 文件是 run.sh 用的本地副本（gitignored）。
-> 改完根目录的 `.py` 后需要 `cp` 到对应实例目录再重启。
+1. 安装 [Ollama](https://ollama.com/download)，拉取模型（默认 `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:latest`，RPG 抽取用 `qwen3:14b`）。App 菜单里也能检查和拉取。
+2. 打开 `TelegramTavern.app`。首次启动会创建数据目录
+   `~/Library/Application Support/TelegramTavern/`：
+   ```
+   .env            TG_TOKEN_XXX=...        ← 从 @BotFather 拿的 token
+   bots/*.yaml     每个 bot 一个文件
+   characters/     放角色卡 PNG
+   worlds/         放世界书 JSON
+   data/ logs/     运行数据
+   ```
+3. 菜单栏 🍺 → 「打开数据目录」放入角色卡、写 yaml、填 `.env` → 「重新加载配置」→ 「启动全部 bot」。
 
-## 部署 / 配置安全
+`bots/example.yaml`（最小）：
 
-- **每个 bot 自带 `.env.example`**：`penelope/.env.example` / `june/.env.example` / `aqua/.env.example`。
-  新机器上 `cp .env.example .env` → 填 `TELEGRAM_BOT_TOKEN` → 启动。
-- **`.env` 永远不进 git**。`.gitignore` 把每个 bot 实例的 `.env` 排除，
-  同时把 `data/*.db`、`*.log`、`venv/` 也排除（只有 `README.md` + `.env.example` 进 git）。
-- **跑一遍配置自检**：`./scripts/check_config.sh` — 校验 token 非空、路径存在、
-  `.env` 没被 git track、tracked 文件里没有真实 token 漏出。
-
-## 目录结构
-
-```
-telegramtavern/
-├── bot.py                # PTB dispatcher + streaming reply
-├── character_card.py     # ST V2/V3 parser + ExtendedCharacterCard
-├── prompt_item.py        # PromptItem dataclass — pipeline atomic unit
-├── director.py           # DirectorConfig + Director Prompt builder
-├── pipeline.py           # PromptPipeline — 13-stage assembler
-├── ollama_client.py      # Async Ollama /v1/chat/completions client
-├── config.py             # Config dataclass from .env
-├── db.py                 # SQLite session store
-├── configs/
-│   ├── bots/             # Per-bot overrides (planned, not yet used)
-│   ├── models/           # Model profiles (planned, not yet used)
-│   └── director/         # Director prompt presets (planned, not yet used)
-├── characters/
-│   ├── penelope/         # Drop Penelope3.png here
-│   ├── june/             # Drop June.png here
-│   └── aqua/             # Drop Aqua.png here
-├── docs/                 # architecture.md + phase1_delivery.md (kept from old bot dir)
-├── scripts/              # start.sh / stop.sh / restart.sh / healthcheck.sh
-├── logs/                 # Runtime logs (gitignored)
-├── data/                 # Runtime SQLite (gitignored)
-├── .env.example          # Config template
-├── .gitignore
-└── requirements.txt
+```yaml
+name: my-bot
+enabled: true
+mode: dialogue          # 或 rpg
+token_env: TG_TOKEN_MYBOT
+characters: [MyCharacter.png]
+worlds: []              # 可选，叠加在卡内嵌世界书之上
+model: fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:latest
+reply_language: zh-CN
 ```
 
-## 快速开始（新机器从零部署）
+RPG 模式常用字段：`extract_model`、`extract`、`rules`（D&D 规则）、`scenes`（导演场景）、`newgame_prompt`、`continue_prompt`、`language_override`、`translation_table`。全部字段见 `tavern/config.py` 的 `BotConfig`。
+
+## 从源码运行 / 开发
 
 ```bash
-# 1. 克隆代码
-git clone <this-repo> ~/Documents/telegramtavern
-cd ~/Documents/telegramtavern
-
-# 2. 创建 venv + 装依赖
-python3 -m venv venv
-./venv/bin/pip install -q --upgrade pip
-./venv/bin/pip install -q -r requirements.txt
-
-# 3. 配 .env
-cp .env.example .env
-# 编辑 .env：填 TELEGRAM_BOT_TOKEN、OLLAMA_MODEL、CHARACTER_PATH 等
-
-# 4. 准备角色卡
-# 把角色 PNG（带 chara tEXt chunk）放到 ./characters/<name>/
-# 或用 V2/V3 JSON 文件
-
-# 5. 拉模型
-ollama pull <model-from-env>
-
-# 6. 启动
-./scripts/start.sh
-# 或后台： ./scripts/start.sh --bg
+python3 -m venv venv && ./venv/bin/pip install -r requirements-v3.txt
+export TAVERN_DATA_DIR=$PWD/data-v3        # 开发用数据目录（已 gitignore）
+./venv/bin/python -m tavern init            # 建目录与示例
+./venv/bin/python -m tavern check           # 检查 Ollama / 模型 / 每个 bot 的配置
+./venv/bin/python -m tavern run             # 前台运行全部 bot
+./venv/bin/python app/menubar.py            # 从源码跑菜单栏 App
+./scripts/build_app.sh --install            # 打包并安装到 /Applications
 ```
 
-## Prompt Pipeline 顺序
-
-```
-[0]  System Anchor           — "You are <char>, role-playing..."
-[1]  Language Override       — "Always reply in <REPLY_LANGUAGE>..."
-[2]  Director                — RP rules (no loop, advance narrative, ...)
-[3]  Lore Before             — [Phase 2 - stub]
-[4]  Character Defs          — Description / Personality / Scenario
-[5]  Lore After              — [Phase 2 - stub]
-[6]  Persona                 — User persona
-[7]  Lore Examples           — [Phase 2 - stub]
-[8]  Examples                — Example dialogues
-[9]  Summary                 — [Phase 3 - stub]
-[10] Chat History            — Real conversation
-[11] Depth Injections        — In-chat depth prompts
-[12] Post-History Instr.     — Last + highest priority
-```
-
-Phase 1 实际激活：0, 1, 2, 4, 6, 8, 10, 11, 12（其余位置预留）。
-
-## 调试
+测试（离线，不需要 Telegram；部分需要本地 Ollama）：
 
 ```bash
-# Telegram 内 /debug — 当前 user / chat 的 PromptItem 列表（含 token 估算）
-/debug
-
-# 环境变量 — 全局打开 DEBUG 级日志 + 每次组装后输出完整报告
-DEBUG_PROMPT=1 ./scripts/start.sh
+./venv/bin/python tests/test_worldinfo.py
+./venv/bin/python tests/test_pipeline_v3.py
+./venv/bin/python tests/test_rpg_v3.py
 ```
 
-## 文档
+## 代码结构
 
-- 架构设计：`docs/architecture.md`
-- Phase 1 交付清单：`docs/phase1_delivery.md`
-- Obsidian 项目 vault：`~/Library/Mobile Documents/iCloud~md~obsidian/Documents/CodingMarkdown/Projects/telegram-tavern/`
+```
+tavern/
+  worldinfo.py        ST 兼容世界书引擎
+  engine.py           CharacterRuntime：角色卡 + 世界书 + Pipeline + Ollama
+  config.py           数据目录与 bots/*.yaml
+  manager.py          多 bot 引擎；cli.py / __main__.py 命令行
+  modes/dialogue.py   对话模式（角色切换、绑定）
+  modes/rpg.py        RPG 模式（世界状态、抽取、规则、导演、存档导出）
+  rpg/                game_state / state_extractor / rpg_engine / director_engine / sessions
+app/menubar.py        rumps 菜单栏 App；app/TelegramTavern.spec 打包
+pipeline.py character_card.py director.py story_engine.py ollama_client.py   V1 核心，V3 复用
+docs/V3_PLAN.md docs/V3_HANDOFF.md   计划与交接
+```
 
-## License
+## 历史
 
-Private / TBD
+- V1（`_archive_2026-06-30/`、`penelope/`）：单角色 Prompt Pipeline 原型。
+- V2（`~/Documents/SillyTavern/connector/`）：SillyTavern + 无头浏览器桥接，已被 V3 取代。

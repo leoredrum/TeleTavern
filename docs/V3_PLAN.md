@@ -50,7 +50,7 @@ director_enabled: false            # Penelope 专用 Director 块
 
 ## 分阶段
 
-### Phase 1 — 引擎核心（仓库 `telegramtavern/`，新包 `tavern/`）
+### Phase 1 — 引擎核心（仓库 `telegramtavern/`，新包 `tavern/`）✅ 完成 2026-10-05
 1. `tavern/worldinfo.py`：ST 兼容世界书引擎。字段：key/keysecondary、selectiveLogic（AND_ANY/NOT_ALL/NOT_ANY/AND_ALL）、constant、order、position（before/after char、AN top/bottom、EM top/bottom、@depth+role）、scanDepth、caseSensitive、matchWholeWords、正则键、probability、递归（含 exclude/prevent）、token 预算。同时读取角色卡内嵌 book 与 ST 世界 JSON。**测试用现有三本真实书。**
 2. Pipeline 接入：Lore Before/After/Examples/Depth；token 预算裁剪历史；`/start` 支持多开场白。
 3. `tavern/manager.py`：读取 `bots/*.yaml`，一个进程跑 N 个 PTB Application；模式：
@@ -59,12 +59,12 @@ director_enabled: false            # Penelope 专用 Director 块
 4. 移植 MUSHOKU / SAENGMYEONG 的语言覆盖、first_mes 预翻译、`translate_to_chinese` 表为 yaml 配置。
 5. 冒烟：离线 assemble 三张卡 + 真实 Telegram 单 bot 跑通（启动前先停 connector 里对应旧 bot，避免 getUpdates 冲突）。
 
-### Phase 2 — App 外壳与打包
+### Phase 2 — App 外壳与打包 ✅ 完成 2026-10-05（rumps + PyInstaller，38 MB）
 - `app/`：菜单栏（rumps）+ 设置窗口（pywebview 或原生对话框）；Ollama 检测 / 拉起 / `ollama pull` 进度；日志窗口。
 - PyInstaller spec → `TelegramTavern.app`；首次启动创建数据目录并复制示例 yaml。
 - `.claude/launch.json` 供本机预览。
 
-### Phase 3 — 切换
+### Phase 3 — 切换 ✅ 完成 2026-10-05（App 接管四 bot，旧 bot 停止）
 - 四个 token 迁入新引擎；逐个停旧 bot、起新 bot、实测。
 - connector 栈归档；Obsidian `PROJECT_CONTEXT.md` 的「V2 以 SillyTavern 为中心」决策标记为被 V3 取代。
 

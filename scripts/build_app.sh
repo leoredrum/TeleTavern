@@ -19,5 +19,9 @@ du -sh "$APP" | awk '{print "built " $2 " (" $1 ")"}'
 if [ "${1:-}" = "--install" ]; then
     rm -rf /Applications/TelegramTavern.app
     cp -R "$APP" /Applications/
+    # make Launch Services / Dock pick up the (new) icon instead of a cached generic one
+    /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f /Applications/TelegramTavern.app >/dev/null 2>&1 || true
+    touch /Applications/TelegramTavern.app
+    killall Dock >/dev/null 2>&1 || true
     echo "installed /Applications/TelegramTavern.app"
 fi

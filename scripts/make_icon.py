@@ -56,7 +56,7 @@ def draw_icon() -> Image.Image:
         d.rounded_rectangle((x, 440, x + 22, 790), radius=11, fill=(255, 190, 80))
     # handle
     d.rounded_rectangle((620, 480, 760, 720), radius=70, outline=amber_dark, width=42)
-    d.rounded_rectangle((640, 500, 740, 700), radius=50, fill=(0, 0, 0, 0))
+    d.rounded_rectangle((640, 500, 740, 700), radius=50, fill=lerp((58, 34, 22), (26, 18, 14), 0.58))  # background colour, not a hole
     # foam
     d.rounded_rectangle((300, 330, 670, 440), radius=55, fill=foam)
     for cx, cy, r in ((330, 340, 62), (420, 300, 78), (520, 310, 72), (610, 335, 62), (660, 390, 48)):

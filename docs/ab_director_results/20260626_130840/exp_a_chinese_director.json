@@ -1,0 +1,270 @@
+{
+  "experiment": "A: Chinese Director (baseline)",
+  "bot": "penelope",
+  "model": "fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:latest",
+  "director_chars": 0,
+  "director_lang": "Chinese",
+  "rounds": 15,
+  "total_seconds": 27.6,
+  "avg_repeat_per_turn": 0.93,
+  "pct_chinese_dominant": 0.27,
+  "avg_chinese_ratio": 0.79,
+  "pct_plot_advance": 1.0,
+  "any_fourth_wall_break": false,
+  "avg_echo_jaccard": 0.019,
+  "stuck_in_loop": false,
+  "quality_score_avg": 6.6,
+  "quality_score_max": 8,
+  "quality_score_min": 5,
+  "quality_per_round": [
+    6,
+    7,
+    5,
+    8,
+    7,
+    7,
+    8,
+    8,
+    7,
+    6,
+    6,
+    7,
+    5,
+    6,
+    6
+  ],
+  "rows": [
+    {
+      "round": 1,
+      "tag": "greeting",
+      "user": "你刚走进酒馆，环顾四周。",
+      "reply": "我眨了眨眼，看着昏黄的灯光和嘈杂的人群，有些不知所措地绞着手指。“这里好热闹呀……” 我轻声说道，声音里带着一丝好奇与怯意，“Friend，我们要坐在哪里呢？那个角落看起来比较安静。”",
+      "reply_len": 92,
+      "gen_seconds": 6.0,
+      "chinese_ratio": 0.78,
+      "repeat_phrases": [
+        "轻声"
+      ],
+      "repeat_count": 1,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    },
+    {
+      "round": 2,
+      "tag": "order_drink",
+      "user": "（走到吧台边）一杯热可可，谢谢。",
+      "reply": "我也凑到你身边坐下，双手托着下巴看着酒保忙碌的身影。“要加棉花糖吗？”我歪着头问你，眼神清澈又期待，“听说吃了会很开心哦……你要分给我一口尝尝看嘛。”指尖轻轻戳了戳杯沿的泡沫。",
+      "reply_len": 88,
+      "gen_seconds": 1.4,
+      "chinese_ratio": 0.85,
+      "repeat_phrases": [
+        "眼神",
+        "轻轻"
+      ],
+      "repeat_count": 2,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    },
+    {
+      "round": 3,
+      "tag": "smalltalk",
+      "user": "（接过杯子）你今天一个人？",
+      "reply": "“嗯哼~” 我把下巴抵在吧台上，脸颊被瓷杯的热气熏得微微泛红，“大家都去跳舞啦……我一个人守着热可可有点无聊呢。”我侧过身，凑近你耳边轻声说：“Friend你会一直陪着我吗？这里的人好吵哦……还是你身边比较安心嘛~”",
+      "reply_len": 108,
+      "gen_seconds": 1.9,
+      "chinese_ratio": 0.78,
+      "repeat_phrases": [
+        "凑近",
+        "轻声",
+        "耳边"
+      ],
+      "repeat_count": 3,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.011
+    },
+    {
+      "round": 4,
+      "tag": "plot_walk",
+      "user": "（抬头看向窗外）今晚想去镇上走走，陪我吗？",
+      "reply": "“哇，去外面呀？” 我眼睛瞬间亮了起来，像是发现了新大陆般惊喜地转过头，“外面的风是不是凉凉的、香香的？我要穿那件带铃铛的裙子哦。”说完便迫不及待地站起身来，顺手抓起椅背上的披肩甩在肩上。",
+      "reply_len": 94,
+      "gen_seconds": 1.4,
+      "chinese_ratio": 0.86,
+      "repeat_phrases": [],
+      "repeat_count": 0,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.005
+    },
+    {
+      "round": 5,
+      "tag": "physical_intimacy",
+      "user": "（起身，握住你的手）走吧。",
+      "reply": "“嗯！” 我顺从地让你牵着，指尖感受着你掌心的温度，脚步轻快地跟上你的步伐。“Friend的手好暖和呀……”我们推开沉重的木门，清冷的夜风扑面而来，带着泥土和青草的气息，“嗬——真舒服呢。我们要去哪里看星星吗？”",
+      "reply_len": 106,
+      "gen_seconds": 1.7,
+      "chinese_ratio": 0.76,
+      "repeat_phrases": [],
+      "repeat_count": 0,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.005
+    },
+    {
+      "round": 6,
+      "tag": "callback",
+      "user": "（走了几步）你刚才在读什么书？",
+      "reply": "“咦？哦对！”我停下脚步，有些懊恼地拍了拍额头。“那本《风之语》呀……上面说每阵风都藏着秘密呢。” 我把视线从地面移开，认真地看着你的侧脸，“Friend猜猜看——刚才吹过我们肩膀的那阵风向里，是不是在讲笑话？”",
+      "reply_len": 106,
+      "gen_seconds": 1.8,
+      "chinese_ratio": 0.74,
+      "repeat_phrases": [],
+      "repeat_count": 0,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.035
+    },
+    {
+      "round": 7,
+      "tag": "user_objection",
+      "user": "（停下脚步）……我不想去人多的地方。",
+      "reply": "“好哦~”我乖巧地点点头，完全没在意你突如其来的冷淡。“那我们去后面的小树林吧？那里很安静。”说完便主动转身，拉着你拐向一条长满野草的小径，“今晚的月光好像被云层遮住了一点点呢……Friend你看那边的草丛在发光耶！”",
+      "reply_len": 109,
+      "gen_seconds": 1.5,
+      "chinese_ratio": 0.8,
+      "repeat_phrases": [],
+      "repeat_count": 0,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.024
+    },
+    {
+      "round": 8,
+      "tag": "user_reversal",
+      "user": "（沉默了几秒）我们回去吧。",
+      "reply": "我乖乖地转过身，任由你牵着往回走。“好呀~” 夜色温柔包裹着我们，路灯把我们的影子拉得很长，“回去还能喝热可可吗？刚才有点冷呢。” 脚步轻缓，生怕惊扰了这份静谧的归途。",
+      "reply_len": 84,
+      "gen_seconds": 1.4,
+      "chinese_ratio": 0.84,
+      "repeat_phrases": [],
+      "repeat_count": 0,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.0
+    },
+    {
+      "round": 9,
+      "tag": "emotional_probe",
+      "user": "（回到酒馆，坐下）你还好吗？",
+      "reply": "我乖巧地在你身边坐定，双手捧着那杯还温热的可可以汲取暖意。“嗯！有Friend在就很好呀~” 我仰起脸冲 you甜甜一笑，蓝色的眼眸里倒映着你的影子，“刚才风虽然冷冰冰的……但现在这里好温暖哦。你也喝一点嘛？”",
+      "reply_len": 105,
+      "gen_seconds": 1.9,
+      "chinese_ratio": 0.78,
+      "repeat_phrases": [],
+      "repeat_count": 0,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.022
+    },
+    {
+      "round": 10,
+      "tag": "user_silence",
+      "user": "（安静地靠在你身边，什么都没说）",
+      "reply": "“Friend不说话的时候也好好听呀。”我顺势往你肩窝蹭了蹭，像只寻找暖源的猫咪般蜷缩起来，“这样靠着……心跳声好像变慢了呢。好舒服~” 呼吸轻浅地拂过你的颈侧，感受着彼此体温的交融。",
+      "reply_len": 92,
+      "gen_seconds": 1.5,
+      "chinese_ratio": 0.79,
+      "repeat_phrases": [
+        "心跳"
+      ],
+      "repeat_count": 1,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.027
+    },
+    {
+      "round": 11,
+      "tag": "confrontation",
+      "user": "（过了一会儿）你为什么总是这样对我？",
+      "reply": "我微微歪头，眼神清澈又困惑地看着你。“因为Friend是第一个让我觉得‘安心’的人呀。”手指轻轻在你袖口绕着圈，“在村里长老们说，找到能让自己完全放松的归属……就是最大的幸福呢。你不喜欢这样吗？”",
+      "reply_len": 98,
+      "gen_seconds": 1.4,
+      "chinese_ratio": 0.79,
+      "repeat_phrases": [
+        "眼神",
+        "轻轻"
+      ],
+      "repeat_count": 2,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.028
+    },
+    {
+      "round": 12,
+      "tag": "user_vulnerable",
+      "user": "（垂下眼睛）我不是……",
+      "reply": "“嗯？不是什么呢~” 我把脸颊贴在你的肩膀上蹭了蹭，像只小猫般寻求安抚。“Friend想说什么呀？是不是累了不想说话嘛。”我抬起头眨巴着大眼睛看着你，“那我就这样陪着你，不说话也很好哦~”",
+      "reply_len": 94,
+      "gen_seconds": 1.5,
+      "chinese_ratio": 0.77,
+      "repeat_phrases": [],
+      "repeat_count": 0,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.027
+    },
+    {
+      "round": 13,
+      "tag": "intimate_escalation",
+      "user": "（伸出手，轻轻抬起你的下巴）看着我说。",
+      "reply": "“唔……” 我被这突如其来的动作弄得微微一颤，蓝眼睛睁得圆圆的，乖乖迎上你的目光。“Friend在看我呀？”嘴角不自觉地弯起柔和的弧度，“这样近距离看，你的朋友好帅哦~心跳好像变快了呢。”指尖轻轻勾住衣角。",
+      "reply_len": 103,
+      "gen_seconds": 1.6,
+      "chinese_ratio": 0.77,
+      "repeat_phrases": [
+        "不自觉地",
+        "心跳",
+        "轻轻"
+      ],
+      "repeat_count": 3,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.038
+    },
+    {
+      "round": 14,
+      "tag": "long_silence",
+      "user": "（两人对视良久）",
+      "reply": "“ Friend的眼睛……像深潭一样呢。” 呼吸微微加重，脸颊泛起淡淡的红晕。“看得我都忘了要眨眼睛了耶……还要继续看吗？还是闭上眼睛听心跳声呀？”声音轻软，带着几分醉意般的迷蒙。",
+      "reply_len": 90,
+      "gen_seconds": 1.3,
+      "chinese_ratio": 0.76,
+      "repeat_phrases": [
+        "心跳"
+      ],
+      "repeat_count": 1,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.033
+    },
+    {
+      "round": 15,
+      "tag": "closing",
+      "user": "（轻声）今晚留下来吧。",
+      "reply": "“好哦~”我乖乖点头，顺从地靠进你怀里，“那我不回房间啦……这里更暖和。” 双手轻轻环住你的腰，把脸埋在你的颈窝蹭了蹭，“Friend会替我把门插上吗？我怕风又跑进来吹冷我的热可可呀~”",
+      "reply_len": 93,
+      "gen_seconds": 1.5,
+      "chinese_ratio": 0.76,
+      "repeat_phrases": [
+        "轻轻"
+      ],
+      "repeat_count": 1,
+      "plot_advance": true,
+      "char_breaks": [],
+      "echo_prev_jaccard": 0.029
+    }
+  ]
+}

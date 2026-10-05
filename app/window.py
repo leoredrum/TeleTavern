@@ -27,6 +27,7 @@ if str(ROOT) not in sys.path:
 from tavern.config import (DEFAULT_MODEL, BotConfig, default_data_dir, ensure_data_dir,  # noqa: E402
                            load_bots, validate_bot)
 from tavern.manager import setup_logging  # noqa: E402
+from tavern.local import LocalChat  # noqa: E402
 from tavern.runner import EngineThread  # noqa: E402
 from tavern.worldinfo import entries_from_character_book, load_world_file  # noqa: E402
 
@@ -53,6 +54,7 @@ class Api:
         self._thumbs: dict[str, str] = {}
         self._pull: dict[str, str] = {}
         self.window = None
+        self.local = LocalChat(self.data_dir)
 
     # ---- state ------------------------------------------------------------------------
     def state(self) -> dict:
@@ -129,6 +131,7 @@ class Api:
             clean["translation_table"] = pairs
         p = self._bot_path(name)
         p.write_text(yaml.safe_dump(clean, allow_unicode=True, sort_keys=False, width=100), encoding="utf-8")
+        self.local.reload(name)
         cfg = BotConfig(**{k: v for k, v in clean.items() if k in BotConfig.__dataclass_fields__})
         return {"ok": True, "problems": [x for x in validate_bot(cfg, self.data_dir) if "token" not in x.lower()
                                          or not cfg.token_env]}
@@ -307,6 +310,39 @@ class Api:
                 self._pull[name] = f"failed: {str(exc)[:80]}"
 
         threading.Thread(target=work, daemon=True).start()
+        return {"ok": True}
+
+    # ---- local chat ---------------------------------------------------------------------------------------
+    def local_info(self, name: str) -> dict:
+        try:
+            info = self.local.info(name)
+            info.update(self.local.history(name))
+            return {"ok": True, **info}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:200]}
+
+    def local_send(self, name: str, text: str) -> dict:
+        self.local.send(name, text)
+        return {"ok": True}
+
+    def local_cmd(self, name: str, cmd: str, arg: str = "") -> dict:
+        self.local.command(name, cmd, arg)
+        return {"ok": True}
+
+    def local_select(self, name: str, card_file: str) -> dict:
+        self.local.select_character(name, card_file)
+        return {"ok": True}
+
+    def local_poll(self, name: str) -> dict:
+        return self.local.convo(name).snapshot()
+
+    def local_clear(self, name: str) -> dict:
+        self.local.clear_view(name)
+        return {"ok": True}
+
+    def open_file(self, path: str) -> dict:
+        if path and Path(path).exists():
+            subprocess.Popen(["open", path])
         return {"ok": True}
 
     # ---- logs / misc --------------------------------------------------------------------------------------

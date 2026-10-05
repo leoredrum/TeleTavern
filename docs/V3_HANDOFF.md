@@ -24,6 +24,7 @@
 | 1c | `tavern/config.py` yaml 配置；`tavern/engine.py` CharacterRuntime；`tavern/storage.py`；`modes/dialogue.py`（SINGLE 移植）；`modes/rpg.py` + `rpg/`（DM 四引擎原样移植 + sessions/导出）；`manager.py` 多 bot；`cli.py` | `tests/test_rpg_v3.py` 12 项 PASS；真实 Ollama 生成冒烟 9.6s / 88% 中文 / 世界书命中 |
 | 2 | `app/window.py` + `app/ui.html`（pywebview 窗口：总览/Bots/角色卡/世界书/模型/日志，token 写入 .env，导入卡与世界书，拉模型）；`app/menubar.py` 备选；spec + `scripts/build_app.sh`，42 MB .app | 安装版启动，4 bot 轮询；Api 方法 headless 冒烟通过 |
 | 3 | 四 token 迁入 `.env`，旧 bot 停止，App 接管 | engine.log 四条 `polling as` |
+| + | 本地聊天：`tavern/local.py`（LocalUpdate 适配器，chat_id = -1，私有 asyncio 线程）+ 窗口「💬 本地聊天」页（选 bot/角色、新对话/新游戏/继续/状态/导出、流式显示） | headless：Penelope 开场+回复 13s；mushoku /newgame 25s 建局 |
 
 ## 日常操作
 

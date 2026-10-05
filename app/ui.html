@@ -38,6 +38,17 @@
   .char .meta { min-width:0; } .char .meta b { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   .chk { display:flex; align-items:center; gap:8px; margin:6px 0; }
   .list { max-height:180px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:6px 10px; background:var(--bg); }
+  .chat { display:flex; flex-direction:column; height:calc(100vh - 44px); }
+  .chat .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .msgs { flex:1; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; -webkit-user-select:text; }
+  .m { max-width:78%; margin:6px 0; padding:9px 13px; border-radius:14px; white-space:pre-wrap; line-height:1.5; }
+  .m.user { margin-left:auto; background:var(--accent); color:#fff; }
+  .m.assistant { background:rgba(127,127,127,.14); }
+  .m.system { margin:8px auto; font-size:12px; color:var(--muted); background:none; text-align:center; }
+  .m.file { background:rgba(10,132,255,.12); cursor:pointer; }
+  .m.busy::after { content:" ▌"; animation:blink 1s infinite; } @keyframes blink { 50% { opacity:0; } }
+  .composer { display:flex; gap:8px; margin-top:10px; }
+  .composer textarea { flex:1; min-height:44px; max-height:140px; font-family:inherit; font-size:14px; }
   .toast { position:fixed; right:18px; bottom:18px; background:var(--fg); color:var(--bg); padding:10px 14px; border-radius:10px; opacity:0; transition:.2s; pointer-events:none; }
   .toast.show { opacity:1; }
   code { -webkit-user-select:text; }
@@ -47,6 +58,7 @@
 <nav>
   <h1>🍺 Telegram Tavern</h1>
   <button data-tab="overview" class="active">📊 总览</button>
+  <button data-tab="chat">💬 本地聊天</button>
   <button data-tab="bots">🤖 Bots</button>
   <button data-tab="characters">🎭 角色卡</button>
   <button data-tab="worlds">📚 世界书</button>
@@ -71,6 +83,21 @@
     <div class="grid" id="ov-bots"></div>
     <div class="card muted">数据目录：<code id="datadir2"></code> &nbsp;
       <button class="btn" onclick="api('open_path','root')">在 Finder 中打开</button>
+    </div>
+  </section>
+
+  <section id="chat">
+    <div class="chat">
+      <div class="bar">
+        <h2 style="margin:0 10px 0 0">本地聊天</h2>
+        <select id="chat-bot" onchange="chatOpen()"></select>
+        <select id="chat-char" onchange="chatSelectChar()" style="display:none"></select>
+        <span id="chat-tools"></span>
+        <span class="muted" id="chat-info"></span>
+      </div>
+      <div class="msgs" id="chat-msgs"><div class="m system">选择一个 bot 开始。本地聊天与 Telegram 共用同一套角色、世界书和世界状态，但对话互相独立。</div></div>
+      <div class="composer"><textarea id="chat-input" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+        <button class="btn primary" id="chat-send" onclick="chatSend()">发送</button></div>
     </div>
   </section>
 
@@ -142,6 +169,7 @@ function showTab(id) {
   if (id === 'bots') renderBotList();
   if (id === 'logs') refreshLog();
   if (id === 'models') renderOllama();
+  if (id === 'chat') chatInit();
 }
 
 async function engine(cmd) { await api(cmd); toast(cmd === 'stop' ? '已停止' : '引擎启动中…'); setTimeout(refresh, 800); }
@@ -275,6 +303,56 @@ async function pullName(n) { await api('pull_model', n); toast('开始拉取 ' +
 async function pull() { const n = $('#pull-name').value.trim(); if (!n) return; pullName(n); }
 
 async function refreshLog() { if (!$('#logs').classList.contains('active')) return; const el = $('#log'); const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20; el.textContent = await api('logs', 300); if (atBottom) el.scrollTop = el.scrollHeight; }
+
+// ---- local chat ----
+let CHAT_BOT = null, CHAT_VER = -1, CHAT_TIMER = null;
+function chatInit() {
+  if (!STATE) return;
+  const sel = $('#chat-bot'); const prev = sel.value;
+  sel.innerHTML = '<option value="">选择 bot…</option>' + STATE.bots.map(b => `<option value="${esc(b.name)}">${esc(b.name)} (${b.mode})</option>`).join('');
+  if (prev) sel.value = prev;
+  if (!CHAT_TIMER) CHAT_TIMER = setInterval(chatPoll, 700);
+}
+async function chatOpen() {
+  CHAT_BOT = $('#chat-bot').value || null; CHAT_VER = -1;
+  $('#chat-char').style.display = 'none'; $('#chat-tools').innerHTML = ''; $('#chat-info').textContent = '';
+  if (!CHAT_BOT) return;
+  $('#chat-msgs').innerHTML = '<div class="m system">加载中…</div>';
+  const info = await api('local_info', CHAT_BOT);
+  if (!info.ok) { $('#chat-msgs').innerHTML = `<div class="m system">❌ ${esc(info.error)}</div>`; return; }
+  if (info.mode === 'dialogue') {
+    const cs = $('#chat-char'); cs.style.display = '';
+    cs.innerHTML = '<option value="">选择角色…</option>' + info.characters.map(c => `<option value="${esc(c.file)}" ${c.file===info.current?'selected':''}>${esc(c.name)}</option>`).join('');
+    $('#chat-tools').innerHTML = `<button class="btn" onclick="chatCmd('reset')">新对话</button><button class="btn" onclick="chatCmd('where')">状态</button><button class="btn" onclick="chatCmd('debug')">prompt</button>`;
+  } else {
+    $('#chat-tools').innerHTML = `<button class="btn" onclick="chatCmd('newgame')">新游戏</button><button class="btn" onclick="chatCmd('continue')">继续</button><button class="btn" onclick="chatCmd('status')">世界状态</button><button class="btn" onclick="chatCmd('export_script')">导出剧本</button><button class="btn" onclick="chatCmd('endgame')">结束本局</button>`;
+    $('#chat-info').textContent = info.session ? `当前局：${info.session.title} (${info.session.id})` : '尚无游戏局，点「新游戏」';
+  }
+  renderChat(info);
+}
+async function chatSelectChar() { const f = $('#chat-char').value; if (!f || !CHAT_BOT) return; await api('local_select', CHAT_BOT, f); CHAT_VER = -1; }
+async function chatCmd(cmd) { if (!CHAT_BOT) return; await api('local_cmd', CHAT_BOT, cmd, ''); }
+async function chatSend() {
+  const el = $('#chat-input'); const t = el.value.trim(); if (!t || !CHAT_BOT) return;
+  el.value = ''; await api('local_send', CHAT_BOT, t);
+}
+$('#chat-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); chatSend(); } });
+async function chatPoll() {
+  if (!CHAT_BOT || !$('#chat').classList.contains('active')) return;
+  const snap = await api('local_poll', CHAT_BOT);
+  if (snap.version === CHAT_VER) return;
+  CHAT_VER = snap.version; renderChat(snap);
+}
+function renderChat(snap) {
+  const box = $('#chat-msgs'); const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;
+  const last = snap.messages.length - 1;
+  box.innerHTML = snap.messages.map((m, i) => m.role === 'file'
+    ? `<div class="m file" onclick="api('open_file','${esc(m.path)}')">📄 ${esc(m.text)}（点击打开）</div>`
+    : `<div class="m ${m.role} ${snap.busy && i === last && m.role === 'assistant' ? 'busy' : ''}">${esc(m.text)}</div>`).join('')
+    || '<div class="m system">（空）</div>';
+  $('#chat-send').disabled = !!snap.busy;
+  if (atBottom || snap.busy) box.scrollTop = box.scrollHeight;
+}
 
 refresh(); setInterval(refresh, 3000); setInterval(() => { if ($('#log-follow').checked) refreshLog(); }, 2000);
 </script>

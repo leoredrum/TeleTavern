@@ -68,6 +68,7 @@ def ensure_data_dir(data_dir: Path) -> Path:
 class BotConfig:
     name: str
     mode: str = "dialogue"                 # dialogue | rpg
+    kind: str = "telegram"                 # telegram | local (local = in-app chat only, no token)
     enabled: bool = True
     token_env: str = ""
     characters: list[str] = field(default_factory=list)
@@ -145,10 +146,13 @@ def validate_bot(cfg: BotConfig, data_dir: Path) -> list[str]:
     problems = []
     if cfg.mode not in ("dialogue", "rpg"):
         problems.append(f"mode 必须是 dialogue 或 rpg（当前 {cfg.mode}）")
-    if not cfg.token_env:
-        problems.append("缺少 token_env")
-    elif not cfg.token:
-        problems.append(f".env 里没有 {cfg.token_env}")
+    if cfg.kind not in ("telegram", "local"):
+        problems.append(f"kind 必须是 telegram 或 local（当前 {cfg.kind}）")
+    if cfg.kind == "telegram":
+        if not cfg.token_env:
+            problems.append("缺少 token_env")
+        elif not cfg.token:
+            problems.append(f".env 里没有 {cfg.token_env}")
     if not cfg.character_files:
         problems.append("characters 为空")
     for c in cfg.character_files:

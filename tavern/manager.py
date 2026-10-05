@@ -36,10 +36,22 @@ def build_bot(cfg: BotConfig, data_dir: Path):
     return RPGBot(cfg, data_dir) if cfg.mode == "rpg" else DialogueBot(cfg, data_dir)
 
 
+def hot_add_character(bot, card_file: str, data_dir: Path) -> bool:
+    """Add a card to a RUNNING DialogueBot without restarting (RPG bots need a restart)."""
+    if not isinstance(bot, DialogueBot) or card_file in bot.runtimes:
+        return isinstance(bot, DialogueBot)
+    from .engine import CharacterRuntime
+    bot.runtimes[card_file] = CharacterRuntime(bot.cfg, card_file, data_dir)
+    if card_file not in bot.cfg.characters:
+        bot.cfg.characters.append(card_file)
+    return True
+
+
 class Engine:
     def __init__(self, data_dir: Path):
         self.data_dir = ensure_data_dir(Path(data_dir))
         self.running: dict[str, object] = {}     # name -> telegram Application
+        self.bots: dict[str, object] = {}        # name -> DialogueBot / RPGBot
         self.status: dict[str, str] = {}
 
     def plan(self) -> list[tuple[BotConfig, list[str]]]:
@@ -50,6 +62,9 @@ class Engine:
         for cfg, problems in self.plan():
             if not cfg.enabled:
                 self.status[cfg.name] = "disabled"
+                continue
+            if cfg.kind == "local":
+                self.status[cfg.name] = "local"
                 continue
             fatal = [p for p in problems if not p.startswith("rpg 模式只使用")]
             if fatal:
@@ -65,6 +80,7 @@ class Engine:
                 me = await app.bot.get_me()
                 apps.append((cfg, app))
                 self.running[cfg.name] = app
+                self.bots[cfg.name] = bot
                 self.status[cfg.name] = f"running as @{me.username}"
                 log.info("[%s] polling as @%s (%s mode)", cfg.name, me.username, cfg.mode)
             except Exception as exc:  # noqa: BLE001
@@ -84,4 +100,5 @@ class Engine:
                 except Exception as exc:  # noqa: BLE001
                     log.warning("[%s] shutdown error: %s", cfg.name, exc)
             self.running.clear()
+            self.bots.clear()
             log.info("engine stopped")

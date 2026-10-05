@@ -28,14 +28,16 @@ if str(ROOT) not in sys.path:
 
 from tavern.config import (DEFAULT_MODEL, BotConfig, default_data_dir, ensure_data_dir,  # noqa: E402
                            load_bots, validate_bot)
-from tavern.manager import setup_logging  # noqa: E402
+from tavern.manager import hot_add_character, setup_logging  # noqa: E402
+from tavern import models as MODELS  # noqa: E402
 from tavern.local import LocalChat  # noqa: E402
 from tavern.runner import EngineThread  # noqa: E402
+from tavern.store import StoreClient  # noqa: E402
 from tavern.worldinfo import entries_from_character_book, load_world_file  # noqa: E402
 
 _TOKEN_KEY = re.compile(r"^[A-Z0-9_]{3,64}$")
 
-BOT_FIELDS = ["name", "enabled", "mode", "token_env", "characters", "worlds", "model", "extract_model",
+BOT_FIELDS = ["name", "enabled", "mode", "kind", "token_env", "characters", "worlds", "model", "extract_model",
               "extract", "rules", "scenes", "reply_language", "user_label", "max_context", "max_tokens",
               "history_limit", "temperature", "director_characters", "story_engine", "language_override",
               "newgame_prompt", "continue_prompt", "translation_table", "first_mes_translate"]
@@ -57,11 +59,11 @@ class Api:
         self._pull: dict[str, str] = {}
         self.window = None
         self.local = LocalChat(self.data_dir)
-        self._store_win = None
-        self._store_opened_at = 0.0
-        self._store_imports: list[dict] = []
-        self._store_seen: set[str] = set()
-        self._store_watch_started = False
+        self.store = StoreClient(self.data_dir)
+        self._login_win = None
+        self._dl_jobs: dict[int, dict] = {}
+        self._dl_thread = None
+        self._model_jobs: dict[str, dict] = {}
 
     # ---- state ------------------------------------------------------------------------
     def state(self) -> dict:
@@ -69,7 +71,7 @@ class Api:
         status = self.engine.status
         for b in load_bots(self.data_dir):
             problems = [p for p in validate_bot(b, self.data_dir) if not p.startswith("rpg 模式只使用")]
-            bots.append({"name": b.name, "mode": b.mode, "enabled": b.enabled, "model": b.model,
+            bots.append({"name": b.name, "mode": b.mode, "kind": b.kind, "enabled": b.enabled, "model": b.model,
                          "characters": b.character_files, "worlds": b.worlds, "problems": problems,
                          "status": status.get(b.name, "stopped" if not self.engine.alive else "starting")})
         return {"running": self.engine.alive, "data_dir": str(self.data_dir), "bots": bots,
@@ -143,13 +145,14 @@ class Api:
         return {"ok": True, "problems": [x for x in validate_bot(cfg, self.data_dir) if "token" not in x.lower()
                                          or not cfg.token_env]}
 
-    def new_bot(self, name: str, mode: str) -> dict:
+    def new_bot(self, name: str, mode: str, kind: str = "telegram") -> dict:
         p = self._bot_path(name)
         if p.exists():
             return {"ok": False, "error": "同名 bot 已存在"}
-        env_key = "TG_TOKEN_" + re.sub(r"[^A-Za-z0-9]", "_", name).upper()
-        cfg = {"name": name, "enabled": False, "mode": mode if mode in ("dialogue", "rpg") else "dialogue",
-               "token_env": env_key, "characters": [], "worlds": [], "model": DEFAULT_MODEL,
+        kind = kind if kind in ("telegram", "local") else "telegram"
+        env_key = ("TG_TOKEN_" + re.sub(r"[^A-Za-z0-9]", "_", name).upper()) if kind == "telegram" else ""
+        cfg = {"name": name, "enabled": kind == "local", "mode": mode if mode in ("dialogue", "rpg") else "dialogue",
+               "kind": kind, "token_env": env_key, "characters": [], "worlds": [], "model": DEFAULT_MODEL,
                "reply_language": "zh-CN", "user_label": "你"}
         if cfg["mode"] == "rpg":
             cfg.update(extract_model="qwen3:14b", extract=True, rules=False, scenes=False, max_tokens=4096)
@@ -352,93 +355,258 @@ class Api:
             subprocess.Popen(["open", path])
         return {"ok": True}
 
-    # ---- character-card store (aicharactercards.com in an embedded browser) ------------------------
-    STORE_URL = "https://aicharactercards.com/"
+    # ---- character-card store (aicharactercards.com API) ----------------------------------------
+    LOGIN_URL = "https://aicharactercards.com/login"
 
-    def _downloads_dir(self) -> Path:
-        return Path(os.environ.get("TAVERN_DOWNLOADS_DIR", str(Path.home() / "Downloads")))
+    def store_auth(self) -> dict:
+        u = self.store.me() if self.store.token else None
+        return {"logged_in": bool(self.store.token and u), "user": self.store.user,
+                "login_open": self._login_win is not None}
 
-    def store_open(self, url: str = "") -> dict:
-        url = url if url.startswith("https://aicharactercards.com") else self.STORE_URL
+    def store_login(self) -> dict:
+        """Open the site's login page; poll localStorage for the JWT, save it, close."""
+        if self._login_win is not None:
+            try:
+                self._login_win.show()
+                return {"ok": True, "reused": True}
+            except Exception:  # noqa: BLE001
+                self._login_win = None
         try:
-            if self._store_win is not None:
-                try:
-                    self._store_win.load_url(url)
-                    return {"ok": True, "reused": True}
-                except Exception:  # noqa: BLE001  (window was closed)
-                    self._store_win = None
-            self._store_opened_at = time.time()
-            self._store_win = webview.create_window("角色卡商店 — aicharactercards.com", url, width=1240,
-                                                    height=860, min_size=(800, 600))
-
-            def _closed():
-                self._store_win = None
-
-            self._store_win.events.closed += _closed
-            self._start_store_watch()
-            return {"ok": True}
+            self._login_win = webview.create_window("登录 aicharactercards.com", self.LOGIN_URL, width=1000,
+                                                    height=780, min_size=(700, 500))
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": str(exc)[:200]}
 
-    def _start_store_watch(self) -> None:
-        if self._store_watch_started:
-            return
-        self._store_watch_started = True
+        def _closed():
+            self._login_win = None
 
-        def loop():
-            while True:
+        self._login_win.events.closed += _closed
+
+        def poll():
+            for _ in range(600):      # up to ~10 minutes
+                time.sleep(1)
+                win = self._login_win
+                if win is None:
+                    return
                 try:
-                    self._store_scan(since=self._store_opened_at)
-                except Exception as exc:  # noqa: BLE001
-                    logging.getLogger("tavern.store").warning("watch: %s", exc)
-                time.sleep(2)
+                    tok = win.evaluate_js("localStorage.getItem('token')")
+                    if tok and isinstance(tok, str) and len(tok) > 20:
+                        user_raw = win.evaluate_js("localStorage.getItem('user')") or "{}"
+                        try:
+                            user = json.loads(user_raw) if isinstance(user_raw, str) else {}
+                        except Exception:  # noqa: BLE001
+                            user = {}
+                        self.store.save_auth(tok, {k: user.get(k) for k in ("id", "username", "email") if isinstance(user, dict)})
+                        self.store.me()
+                        time.sleep(0.8)
+                        try:
+                            win.destroy()
+                        except Exception:  # noqa: BLE001
+                            pass
+                        self._login_win = None
+                        return
+                except Exception:  # noqa: BLE001
+                    continue
 
-        threading.Thread(target=loop, name="tavern-store-watch", daemon=True).start()
+        threading.Thread(target=poll, name="tavern-store-login", daemon=True).start()
+        return {"ok": True}
 
-    def _is_card(self, path: Path):
-        from character_card import load_character
+    def store_logout(self) -> dict:
+        self.store.logout()
+        return {"ok": True}
+
+    def store_meta(self) -> dict:
         try:
-            c = load_character(path)
-            return c if (c.name or c.description) else None
-        except Exception:  # noqa: BLE001
-            return None
+            return {"ok": True, "tags": self.store.tags(), "languages": self.store.languages()}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:200], "tags": [], "languages": []}
 
-    def _store_scan(self, since: float) -> list[dict]:
-        d = self._downloads_dir()
-        if not d.exists():
-            return []
-        found = []
-        for p in sorted(d.glob("*.png"), key=lambda x: x.stat().st_mtime):
-            st = p.stat()
-            key = f"{p.name}:{st.st_size}:{int(st.st_mtime)}"
-            if st.st_mtime < since or key in self._store_seen:
-                continue
-            if time.time() - st.st_mtime < 1.5:      # still being written
-                continue
-            self._store_seen.add(key)
-            card = self._is_card(p)
-            if card is None:
-                continue
-            dest = self.data_dir / "characters" / p.name
-            if dest.exists() and dest.stat().st_size == st.st_size:
-                self._store_imports.append({"file": p.name, "name": card.name, "when": time.time(), "note": "已存在，跳过"})
-                continue
-            if dest.exists():
-                dest = dest.with_name(f"{p.stem}-{int(time.time())}.png")
-            shutil.copy2(p, dest)
-            self._thumbs.pop(p.name, None)
-            rec = {"file": dest.name, "name": card.name, "when": time.time(), "note": "已导入"}
-            self._store_imports.append(rec)
-            found.append(rec)
-        return found
+    def store_browse(self, params: dict) -> dict:
+        try:
+            p = params or {}
+            res = self.store.browse(source=p.get("source", "recent"), search=p.get("search", ""),
+                                    language=p.get("language", ""), tags=p.get("tags") or [],
+                                    nsfw=p.get("nsfw", ""), sort=p.get("sort", ""),
+                                    limit=int(p.get("limit", 24)), skip=int(p.get("skip", 0)),
+                                    period=p.get("period", "7d"), range_=p.get("range", "month"))
+            have = {f.name for f in (self.data_dir / "characters").glob("*.png")}
+            for it in res["items"]:
+                it["owned"] = any(f"[aicc-{it['id']}]" in n for n in have)
+            return {"ok": True, **res}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:200], "items": [], "total": 0}
 
-    def store_status(self) -> dict:
-        return {"open": self._store_win is not None, "imports": self._store_imports[-30:][::-1],
-                "downloads_dir": str(self._downloads_dir())}
+    def store_download(self, items: list) -> dict:
+        """Queue downloads (sequential, rate-limit aware). items: [{id, title}]"""
+        queued = 0
+        for it in items or []:
+            cid = int(it.get("id"))
+            if cid in self._dl_jobs and self._dl_jobs[cid]["state"] in ("queued", "downloading"):
+                continue
+            self._dl_jobs[cid] = {"id": cid, "title": it.get("title", ""), "state": "queued", "file": "", "error": ""}
+            queued += 1
+        if queued and not self._dl_thread_alive():
+            self._dl_thread = threading.Thread(target=self._dl_worker, name="tavern-store-dl", daemon=True)
+            self._dl_thread.start()
+        return {"ok": True, "queued": queued}
 
-    def store_scan_now(self, hours: float = 24) -> dict:
-        found = self._store_scan(since=time.time() - hours * 3600)
-        return {"ok": True, "imported": [f["file"] for f in found]}
+    def _dl_thread_alive(self) -> bool:
+        return bool(self._dl_thread and self._dl_thread.is_alive())
+
+    def _dl_worker(self) -> None:
+        while True:
+            job = next((j for j in self._dl_jobs.values() if j["state"] == "queued"), None)
+            if job is None:
+                return
+            job["state"] = "downloading"
+            try:
+                path = self.store.download(job["id"], self.data_dir / "characters", title=job["title"])
+                job.update(state="done", file=path.name)
+                self._thumbs.pop(path.name, None)
+            except Exception as exc:  # noqa: BLE001
+                job.update(state="failed", error=str(exc)[:160])
+            time.sleep(1.5)        # be gentle with the rate limiter
+
+    def store_progress(self) -> dict:
+        jobs = list(self._dl_jobs.values())
+        return {"jobs": jobs[-50:], "active": any(j["state"] in ("queued", "downloading") for j in jobs)}
+
+    def store_clear_done(self) -> dict:
+        self._dl_jobs = {k: v for k, v in self._dl_jobs.items() if v["state"] in ("queued", "downloading")}
+        return {"ok": True}
+
+    # ---- one-click deploy --------------------------------------------------------------------------------
+    def deploy_targets(self) -> dict:
+        bots = load_bots(self.data_dir)
+        return {"bots": [{"name": b.name, "mode": b.mode, "kind": b.kind, "enabled": b.enabled, "characters": b.character_files,
+                          "has_token": bool(b.token)} for b in bots]}
+
+    def deploy_card(self, card_file: str, target: dict) -> dict:
+        """target = {"bot": "<existing name>"}  or  {"new": {"name", "mode", "token"}}"""
+        card_path = self.data_dir / "characters" / card_file
+        if not card_path.exists():
+            return {"ok": False, "error": f"角色卡不存在: {card_file}"}
+        target = target or {}
+        try:
+            if target.get("new"):
+                n = target["new"]
+                name = re.sub(r"[^A-Za-z0-9_\-\u4e00-\u9fff]+", "-", (n.get("name") or "").strip()).strip("-")
+                if not name:
+                    return {"ok": False, "error": "请填写 bot 名称"}
+                if self._bot_path(name).exists():
+                    return {"ok": False, "error": "同名 bot 已存在，请改名或选择「部署到现有 bot」"}
+                mode = n.get("mode") if n.get("mode") in ("dialogue", "rpg") else "dialogue"
+                kind = "local" if n.get("kind") == "local" else "telegram"
+                env_key = ("TG_TOKEN_" + re.sub(r"[^A-Za-z0-9]", "_", name).upper()) if kind == "telegram" else ""
+                cfg = {"name": name, "enabled": True, "mode": mode, "kind": kind, "token_env": env_key, "characters": [card_file],
+                       "worlds": [], "model": DEFAULT_MODEL, "reply_language": "zh-CN", "user_label": "你"}
+                if mode == "rpg":
+                    cfg.update(extract_model="qwen3:14b", extract=True, rules=False, scenes=False, max_tokens=4096)
+                self._bot_path(name).write_text(yaml.safe_dump(cfg, allow_unicode=True, sort_keys=False), encoding="utf-8")
+                if kind == "local":
+                    return {"ok": True, "bot": name, "restarted": False, "local": True,
+                            "note": f"本地 bot「{name}」已创建，到「本地聊天」页即可使用。"}
+                token = (n.get("token") or "").strip()
+                if token:
+                    self.set_token(env_key, token)
+                if not token:
+                    return {"ok": True, "bot": name, "restarted": False,
+                            "note": f"已创建 bot「{name}」，但还没有 Telegram token。到 Bots 页粘贴 token 后重启引擎即可上线。"}
+                self.engine.restart() if self.engine.alive else self.engine.start()
+                return {"ok": True, "bot": name, "restarted": True, "note": f"bot「{name}」已创建并启动，正在连接 Telegram。"}
+
+            name = target.get("bot")
+            p = self._bot_path(name)
+            if not p.exists():
+                return {"ok": False, "error": f"bot 不存在: {name}"}
+            raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+            mode = raw.get("mode", "dialogue")
+            chars = list(raw.get("characters") or [])
+            if mode == "rpg":
+                raw["characters"] = [card_file]
+            elif card_file not in chars:
+                chars.append(card_file)
+                raw["characters"] = chars
+            p.write_text(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False, width=100), encoding="utf-8")
+            self.local.reload(name)
+            running_bot = (self.engine.engine.bots.get(name) if (self.engine.alive and self.engine.engine) else None)
+            if running_bot is not None and mode == "dialogue":
+                hot_add_character(running_bot, card_file, self.data_dir)
+                return {"ok": True, "bot": name, "restarted": False,
+                        "note": f"已热加载到「{name}」，Telegram 里 /character 立刻可见。"}
+            if self.engine.alive:
+                self.engine.restart()
+                return {"ok": True, "bot": name, "restarted": True, "note": f"已写入「{name}」并重启引擎。"}
+            return {"ok": True, "bot": name, "restarted": False, "note": f"已写入「{name}」，启动引擎后生效。"}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:200]}
+
+    # ---- models page: catalog + one-click deploy ---------------------------------------------------------
+    def models_page(self) -> dict:
+        o = self.ollama()
+        installed = {m["name"] for m in o.get("models", [])}
+        ram = MODELS.machine_ram_gb()
+        bots = load_bots(self.data_dir)
+        return {"ollama": o, "ram_gb": ram, "tier": MODELS.tier_for(ram), "intro": MODELS.INTRO,
+                "catalog": MODELS.catalog_for(installed, ram),
+                "bots": [{"name": b.name, "mode": b.mode, "model": b.model, "extract_model": b.extract_model} for b in bots],
+                "deploys": list(self._model_jobs.values())[-20:]}
+
+    def model_deploy(self, name: str, bots: list, role: str = "chat") -> dict:
+        """Pull `name` if missing, then set it as model / extract_model for the given bots and restart."""
+        name = (name or "").strip()
+        if not name:
+            return {"ok": False, "error": "模型名为空"}
+        if not shutil.which("ollama"):
+            return {"ok": False, "error": "未安装 Ollama"}
+        field = "extract_model" if role == "extract" else "model"
+        job = {"name": name, "role": role, "bots": list(bots or []), "state": "pulling", "progress": "", "error": ""}
+        self._model_jobs[name] = job
+
+        def work():
+            try:
+                o = self.ollama()
+                installed = {m["name"] for m in o.get("models", [])}
+                if name not in installed:
+                    proc = subprocess.Popen(["ollama", "pull", name], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                            text=True, bufsize=1)
+                    for line in proc.stdout or []:
+                        m = re.search(r"(\d{1,3})%", line)
+                        if m:
+                            job["progress"] = f"{m.group(1)}%"
+                            self._pull[name] = f"pulling {m.group(1)}%"
+                    proc.wait()
+                    if proc.returncode != 0:
+                        job.update(state="failed", error="ollama pull 失败（模型名是否正确？）")
+                        self._pull[name] = "failed"
+                        return
+                    self._pull[name] = "done"
+                job["state"] = "applying"
+                changed = []
+                for b in job["bots"]:
+                    p = self._bot_path(b)
+                    if not p.exists():
+                        continue
+                    raw = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
+                    if raw.get(field) != name:
+                        raw[field] = name
+                        p.write_text(yaml.safe_dump(raw, allow_unicode=True, sort_keys=False, width=100), encoding="utf-8")
+                        changed.append(b)
+                    self.local.reload(b)
+                if changed and self.engine.alive:
+                    self.engine.restart()
+                job.update(state="done", progress="100%", applied=changed)
+            except Exception as exc:  # noqa: BLE001
+                job.update(state="failed", error=str(exc)[:160])
+
+        threading.Thread(target=work, name="tavern-model-deploy", daemon=True).start()
+        return {"ok": True}
+
+    def model_remove(self, name: str) -> dict:
+        if not shutil.which("ollama"):
+            return {"ok": False, "error": "未安装 Ollama"}
+        proc = subprocess.run(["ollama", "rm", name], capture_output=True, text=True)
+        return {"ok": proc.returncode == 0, "error": proc.stderr[-160:] if proc.returncode else ""}
 
     # ---- logs / misc --------------------------------------------------------------------------------------
     def logs(self, lines: int = 200) -> str:

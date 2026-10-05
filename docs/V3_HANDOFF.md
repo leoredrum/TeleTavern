@@ -24,7 +24,8 @@
 | 1c | `tavern/config.py` yaml 配置；`tavern/engine.py` CharacterRuntime；`tavern/storage.py`；`modes/dialogue.py`（SINGLE 移植）；`modes/rpg.py` + `rpg/`（DM 四引擎原样移植 + sessions/导出）；`manager.py` 多 bot；`cli.py` | `tests/test_rpg_v3.py` 12 项 PASS；真实 Ollama 生成冒烟 9.6s / 88% 中文 / 世界书命中 |
 | 2 | `app/window.py` + `app/ui.html`（pywebview 窗口：总览/Bots/角色卡/世界书/模型/日志，token 写入 .env，导入卡与世界书，拉模型）；`app/menubar.py` 备选；spec + `scripts/build_app.sh`，42 MB .app | 安装版启动，4 bot 轮询；Api 方法 headless 冒烟通过 |
 | 3 | 四 token 迁入 `.env`，旧 bot 停止，App 接管 | engine.log 四条 `polling as` |
-| + | 角色卡商店：`Api.store_open` 用 `webview.create_window` 开第二个窗口加载 aicharactercards.com（`ALLOW_DOWNLOADS=True`，保存框默认「下载」）；后台线程每 2s 扫描下载文件夹，新 PNG 经 `load_character` 验证后复制进 `characters/`（同名同大小跳过，同名不同内容加时间戳）。`TAVERN_DOWNLOADS_DIR` 可覆盖监视目录 | headless：真卡导入、假 PNG 跳过、重复扫描幂等；运行时开窗并加载站点标题 OK |
+| + | 角色卡商店：`tavern/store.py` 直连 `api.aicharactercards.com`（`/cards` 列表 limit/skip/search/language/tags=<id>/nsfw/orderBy；`/cards/trending?period`；`/cards/most-downloaded?range`；`/cards/metadata/{tags,languages}`；`/cards/{id}/download?format=st`，429 指数退避）。登录：`store_login` 开 `/login` 窗口，轮询 `localStorage.token`，存 `store_auth.json`(0600) 作 Bearer。窗口端 `store_browse/store_download/store_progress`，串行下载队列。文件名 `<title> [aicc-<id>].png`，用于「已拥有」标记 | 真实 API 冒烟：各列表/过滤/元数据 OK，下载 1 张解析为 V3 卡；队列去重、进度、owned 标记 OK；登录窗口加载 OK |
+| + | 一键部署：`Api.deploy_card(card, {bot} / {new:{name,mode,kind,token}})`；运行中的 DialogueBot 通过 `manager.hot_add_character` 热加载；RPG 或新 Telegram bot 走重启。`kind: local` 的 bot 不需要 token、引擎跳过（status=local）、只在本地聊天使用；角色卡右键菜单「生成本地 bot」。模型页：`tavern/models.py` 经核实的推荐目录（Ollama / hf.co GGUF）+ `Api.model_deploy(name, bots, role)` 拉取→写配置→重启。App 图标：`scripts/make_icon.py` 生成 `app/icon.icns` | headless：本地 bot 创建/校验/引擎跳过/本地聊天 OK；models_page OK；回归三套 PASS |
 | + | 本地聊天：`tavern/local.py`（LocalUpdate 适配器，chat_id = -1，私有 asyncio 线程）+ 窗口「💬 本地聊天」页（选 bot/角色、新对话/新游戏/继续/状态/导出、流式显示） | headless：Penelope 开场+回复 13s；mushoku /newgame 25s 建局 |
 
 ## 日常操作

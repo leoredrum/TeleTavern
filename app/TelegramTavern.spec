@@ -30,17 +30,20 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
+    icon=os.path.join(ROOT, "app", "icon.icns"),
 )
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="TelegramTavern")
 app = BUNDLE(
     coll,
     name="TelegramTavern.app",
-    icon=None,
+    icon=os.path.join(ROOT, "app", "icon.icns"),
     bundle_identifier="com.leoredrum.telegramtavern",
     info_plist={
         "LSUIElement": False,                # normal window app with Dock icon
         "CFBundleShortVersionString": "3.0.0",
         "CFBundleName": "TelegramTavern",
+        "CFBundleDisplayName": "Telegram Tavern",
+        "CFBundleIconFile": "icon.icns",
         "NSHighResolutionCapable": True,
         "LSMinimumSystemVersion": "13.0",
     },

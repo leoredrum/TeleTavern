@@ -49,6 +49,17 @@
   .m.busy::after { content:" ▌"; animation:blink 1s infinite; } @keyframes blink { 50% { opacity:0; } }
   .composer { display:flex; gap:8px; margin-top:10px; }
   .composer textarea { flex:1; min-height:44px; max-height:140px; font-family:inherit; font-size:14px; }
+  .sc { display:flex; gap:10px; cursor:pointer; position:relative; }
+  .sc.sel { border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+  .sc img { width:84px; height:112px; object-fit:cover; border-radius:8px; background:#8882; flex:none; }
+  .sc .cb { position:absolute; top:10px; right:10px; width:18px; height:18px; }
+  .sc .t { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; padding-right:22px; }
+  .sc .tags { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; } .sc .tags span { font-size:11px; padding:1px 6px; border-radius:999px; background:rgba(127,127,127,.15); }
+  .sc .ex { font-size:12px; color:var(--muted); max-height:54px; overflow:hidden; margin-top:4px; }
+  .badge { font-size:10px; padding:1px 5px; border-radius:4px; background:var(--bad); color:#fff; margin-left:4px; } .badge.own { background:var(--ok); }
+  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:50; }
+  .modal-bg.show { display:flex; }
+  .modal { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px 20px; width:460px; max-width:92vw; }
   .toast { position:fixed; right:18px; bottom:18px; background:var(--fg); color:var(--bg); padding:10px 14px; border-radius:10px; opacity:0; transition:.2s; pointer-events:none; }
   .toast.show { opacity:1; }
   code { -webkit-user-select:text; }
@@ -105,6 +116,7 @@
   <section id="bots">
     <div class="row" style="justify-content:space-between"><h2>Bots</h2>
       <div class="row"><input id="new-bot-name" placeholder="新 bot 名称" style="width:160px">
+        <select id="new-bot-kind"><option value="telegram">Telegram bot（需 token）</option><option value="local">本地 bot（仅 App 内聊天）</option></select>
         <select id="new-bot-mode"><option value="dialogue">dialogue 对话</option><option value="rpg">rpg 冒险</option></select>
         <button class="btn primary" onclick="newBot()">新建</button></div></div>
     <div class="row" style="align-items:flex-start;gap:16px">
@@ -117,20 +129,34 @@
     <div class="row" style="justify-content:space-between"><h2>角色卡</h2>
       <div class="row"><button class="btn" onclick="importFiles('characters')">导入 PNG…</button>
         <button class="btn" onclick="api('open_path','characters')">打开文件夹</button></div></div>
-    <p class="muted">SillyTavern V2/V3 角色卡。内嵌世界书会自动识别并注入。放入文件夹后，在 Bots 里勾选给某个 bot。</p>
+    <p class="muted">SillyTavern V2/V3 角色卡，内嵌世界书自动识别。「⚡ 本地聊」一键生成本地 bot 并开始对话；「部署到…」挂到现有 bot 或新建 Telegram bot。右键卡片也有同样菜单。</p>
     <div class="grid" id="char-grid"></div>
   </section>
 
   <section id="store">
-    <h2>角色卡商店 — aicharactercards.com</h2>
-    <div class="card">
-      <div class="row"><button class="btn primary" onclick="storeOpen()">打开 aicharactercards.com</button>
-        <button class="btn" onclick="storeScan()">扫描下载文件夹（最近 24 小时）</button>
-        <span class="muted" id="store-state"></span></div>
-      <p class="muted" style="margin:10px 0 0">会打开一个内嵌浏览器窗口：在里面登录你的账号、浏览并点击下载。保存对话框默认指向「下载」文件夹；
-      保存后 App 会自动识别是否为 SillyTavern 角色卡并导入到 <code>characters/</code>。登录状态会被记住。</p>
+    <div class="row" style="justify-content:space-between;align-items:flex-start">
+      <h2>角色卡商店 <span class="muted" style="font-size:13px;font-weight:400">aicharactercards.com</span></h2>
+      <div class="row" id="store-auth"></div>
     </div>
-    <div class="card"><b>最近导入</b><div id="store-imports" class="muted" style="margin-top:8px">（无）</div></div>
+    <div class="card" style="padding:10px 14px">
+      <div class="row">
+        <select id="st-source" onchange="storeReload()"><option value="recent">最新</option><option value="trending">趋势（7 天）</option><option value="downloads">下载榜</option></select>
+        <input id="st-search" placeholder="搜索标题 / 描述" style="width:220px" onkeydown="if(event.key==='Enter')storeReload()">
+        <select id="st-lang" onchange="storeReload()"><option value="">所有语言</option></select>
+        <select id="st-tag" onchange="storeReload()"><option value="">所有标签</option></select>
+        <select id="st-nsfw" onchange="storeReload()"><option value="">SFW + NSFW</option><option value="sfw">仅 SFW</option><option value="nsfw">仅 NSFW</option></select>
+        <select id="st-order" onchange="storeReload()"><option value="">按时间</option><option value="downloadCount">按下载量</option><option value="ratingAvg">按评分</option><option value="aiScore">按 AI 评分</option></select>
+        <button class="btn" onclick="storeReload()">刷新</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label class="chk"><input type="checkbox" id="st-all" onchange="storeToggleAll()"> 全选本页</label>
+        <button class="btn primary" id="st-dl" onclick="storeDownloadSelected()">下载选中 (0)</button>
+        <span class="muted" id="st-count"></span>
+      </div>
+    </div>
+    <div id="st-progress"></div>
+    <div class="grid" id="st-grid" style="grid-template-columns:repeat(auto-fill,minmax(250px,1fr))"></div>
+    <div class="row" style="justify-content:center;margin:14px 0"><button class="btn" id="st-more" onclick="storeMore()">加载更多</button></div>
   </section>
 
   <section id="worlds">
@@ -144,11 +170,16 @@
   <section id="models">
     <h2>模型（Ollama）</h2>
     <div class="card" id="ollama-card"></div>
+    <div class="card" id="models-intro"></div>
+    <div class="row" style="justify-content:space-between;margin:4px 0 8px"><h3 style="margin:0">推荐模型</h3>
+      <div class="row"><label class="chk"><input type="checkbox" id="md-fit" checked onchange="renderModels()"> 只显示本机能跑的</label></div></div>
+    <div id="models-deploys"></div>
+    <div class="grid" id="models-grid" style="grid-template-columns:repeat(auto-fill,minmax(330px,1fr))"></div>
     <div class="card">
-      <div class="row"><input id="pull-name" placeholder="模型名，例如 qwen3:14b" style="width:420px">
+      <b>手动拉取任意模型</b>
+      <div class="row" style="margin-top:8px"><input id="pull-name" placeholder="模型名，例如 huihui_ai/qwen3-abliterated:14b 或 hf.co/<repo>:Q4_K_M" style="width:520px">
         <button class="btn primary" onclick="pull()">拉取</button>
-        <button class="btn" onclick="api('open_url','https://ollama.com/search')">浏览模型库</button></div>
-      <div class="muted" style="margin-top:8px">RP 角色扮演建议：无审查微调模型；RPG 状态抽取用 qwen3:14b 或更小。</div>
+        <button class="btn" onclick="api('open_url','https://ollama.com/search')">浏览 Ollama 模型库</button></div>
       <div id="pulls" style="margin-top:8px"></div>
     </div>
   </section>
@@ -161,6 +192,23 @@
   </section>
 </main>
 <div class="toast" id="toast"></div>
+<div class="modal-bg" id="deploy-bg" onclick="if(event.target===this)deployClose()">
+  <div class="modal">
+    <h3 style="margin:0 0 6px">一键部署角色卡</h3>
+    <div class="muted" id="deploy-card" style="margin-bottom:10px"></div>
+    <label class="f">部署到</label>
+    <select id="deploy-target" onchange="deployModeChange()"></select>
+    <div id="deploy-new" style="display:none">
+      <div class="two">
+        <div><label class="f">新 bot 名称</label><input id="deploy-name" style="width:100%" placeholder="例如 penelope-2"></div>
+        <div><label class="f">类型</label><select id="deploy-kind" style="width:100%" onchange="document.getElementById('deploy-token-row').style.display=this.value==='local'?'none':''"><option value="local">本地 bot（App 内聊天，无需 token）</option><option value="telegram">Telegram bot（需 token）</option></select></div>
+        <div><label class="f">模式</label><select id="deploy-mode" style="width:100%"><option value="dialogue">dialogue 对话</option><option value="rpg">rpg 冒险</option></select></div>
+      </div>
+      <div id="deploy-token-row" style="display:none"><label class="f">Telegram Bot Token（可留空，稍后在 Bots 页填）</label><input id="deploy-token" type="password" style="width:100%" placeholder="从 @BotFather 获取"></div>
+    </div>
+    <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" onclick="deployClose()">取消</button><button class="btn primary" id="deploy-go" onclick="deployGo()">部署</button></div>
+  </div>
+</div>
 
 <script>
 const $ = s => document.querySelector(s);
@@ -183,7 +231,7 @@ function showTab(id) {
   if (id === 'logs') refreshLog();
   if (id === 'models') renderOllama();
   if (id === 'chat') chatInit();
-  if (id === 'store') storeRefresh();
+  if (id === 'store') storeInit();
 }
 
 async function engine(cmd) { await api(cmd); toast(cmd === 'stop' ? '已停止' : '引擎启动中…'); setTimeout(refresh, 800); }
@@ -201,7 +249,7 @@ async function refresh() {
   $('#ollama-brief').textContent = OLLAMA.ok ? `Ollama 正常 · ${OLLAMA.models.length} 个模型` + (OLLAMA.missing.length ? ` · 缺少 ${OLLAMA.missing.length} 个` : '') : 'Ollama 未连接';
   $('#ov-bots').innerHTML = STATE.bots.map(b => {
     const st = b.status || ''; const cls = st.startsWith('running') ? 'ok' : (st === 'disabled' || st === 'stopped' ? '' : (st ? 'bad' : ''));
-    return `<div class="card"><div class="row" style="justify-content:space-between"><b>${esc(b.name)}</b><span class="pill">${b.mode}</span></div>
+    return `<div class="card"><div class="row" style="justify-content:space-between"><b>${esc(b.name)}</b><span><span class="pill">${b.mode}</span>${b.kind==='local'?' <span class="pill">本地</span>':''}</span></div>
       <div style="margin:6px 0"><span class="pill ${cls}">${esc(st || (b.enabled ? '待启动' : '已禁用'))}</span></div>
       <div class="muted">${b.characters.length} 张卡 · ${b.worlds.length} 本世界书</div>
       <div class="muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.model)}</div>
@@ -215,12 +263,12 @@ async function refresh() {
 function renderBotList() {
   if (!STATE) return;
   $('#bot-list').innerHTML = STATE.bots.map(b => `<div class="card" style="cursor:pointer;padding:10px 12px;${CUR_BOT===b.name?'border-color:var(--accent)':''}" onclick="editBot('${esc(b.name)}')">
-     <b>${esc(b.name)}</b> <span class="pill">${b.mode}</span><div class="muted">${b.enabled ? '启用' : '禁用'} · ${esc(b.status||'')}</div></div>`).join('') || '<div class="muted">无</div>';
+     <b>${esc(b.name)}</b> <span class="pill">${b.mode}</span>${b.kind==='local'?' <span class="pill">本地</span>':''}<div class="muted">${b.enabled ? '启用' : '禁用'} · ${esc(b.status||'')}</div></div>`).join('') || '<div class="muted">无</div>';
 }
 async function toggleBot(name) { await api('toggle_bot', name); toast('已修改，重启引擎后生效'); refresh(); }
 async function newBot() {
   const name = $('#new-bot-name').value.trim(); if (!name) return toast('请输入名称');
-  const r = await api('new_bot', name, $('#new-bot-mode').value); if (!r.ok) return toast(r.error);
+  const r = await api('new_bot', name, $('#new-bot-mode').value, $('#new-bot-kind').value); if (!r.ok) return toast(r.error);
   $('#new-bot-name').value = ''; await refresh(); showTab('bots'); editBot(name);
 }
 async function editBot(name) {
@@ -234,10 +282,13 @@ async function editBot(name) {
       <div class="row"><button class="btn primary" onclick="saveBot()">保存</button><button class="btn danger" onclick="delBot()">删除</button></div></div>
     <div class="two">
       <div><label class="f">模式</label><select id="f-mode"><option value="dialogue" ${b.mode==='dialogue'?'selected':''}>dialogue 对话（多角色切换）</option><option value="rpg" ${b.mode==='rpg'?'selected':''}>rpg 冒险（世界状态）</option></select></div>
-      <div><label class="f">启用</label><label class="chk"><input type="checkbox" id="f-enabled" ${b.enabled?'checked':''}> 随引擎启动</label></div>
+      <div><label class="f">类型 / 启用</label><div class="row"><select id="f-kind" onchange="document.getElementById('tg-fields').style.display=this.value==='local'?'none':'contents'"><option value="telegram" ${b.kind!=='local'?'selected':''}>Telegram bot</option><option value="local" ${b.kind==='local'?'selected':''}>本地 bot</option></select>
+        <label class="chk"><input type="checkbox" id="f-enabled" ${b.enabled?'checked':''}> 启用</label></div></div>
+      <div id="tg-fields" style="display:${b.kind==='local'?'none':'contents'}">
       <div><label class="f">Token 变量名（.env）</label><input id="f-token_env" value="${esc(b.token_env)}" style="width:100%"></div>
       <div><label class="f">Telegram Bot Token ${tok && tok.set ? `<span class="pill ok">已设置 ${esc(tok.hint)}</span>` : '<span class="pill warn">未设置</span>'}</label>
         <div class="row"><input id="f-token" type="password" placeholder="从 @BotFather 获取后粘贴" style="flex:1"><button class="btn" onclick="saveToken()">写入 .env</button></div></div>
+      </div>
       <div><label class="f">模型</label><input id="f-model" list="models" value="${esc(b.model)}" style="width:100%"><datalist id="models">${models}</datalist></div>
       <div><label class="f">回复语言 / 用户称呼</label><div class="row"><input id="f-reply_language" value="${esc(b.reply_language)}" style="width:120px"><input id="f-user_label" value="${esc(b.user_label)}" style="width:120px"></div></div>
       <div><label class="f">角色卡（dialogue 可多选；rpg 取第一张）</label><div class="list">${chk(CHARS.map(c=>c.file),'characters',b.characters||[])}</div></div>
@@ -268,7 +319,7 @@ async function editBot(name) {
 function checked(field) { return [...document.querySelectorAll(`input[data-field="${field}"]:checked`)].map(i => i.value); }
 async function saveBot() {
   const v = id => $('#f-' + id).value, c = id => $('#f-' + id).checked;
-  const data = { mode: v('mode'), enabled: c('enabled'), token_env: v('token_env').trim(), model: v('model').trim(),
+  const data = { mode: v('mode'), kind: v('kind'), enabled: c('enabled'), token_env: v('token_env').trim(), model: v('model').trim(),
     reply_language: v('reply_language'), user_label: v('user_label'), characters: checked('characters'), worlds: checked('worlds'),
     max_tokens: v('max_tokens'), max_context: v('max_context'), history_limit: v('history_limit'), temperature: v('temperature'),
     extract: c('extract'), extract_model: v('extract_model').trim(), rules: c('rules'), scenes: c('scenes'), first_mes_translate: c('first_mes_translate'),
@@ -286,10 +337,10 @@ async function delBot() { if (!confirm(`删除 bot「${CUR_BOT}」的配置？�
 
 async function loadChars() {
   CHARS = await api('characters');
-  $('#char-grid').innerHTML = CHARS.map(c => `<div class="card char"><img class="thumb" src="${c.thumb}" alt="">
+  $('#char-grid').innerHTML = CHARS.map(c => `<div class="card char" oncontextmenu="charContext(event,'${esc(c.file)}','${esc(c.name)}')" title="右键：生成本地 bot / 部署"><img class="thumb" src="${c.thumb}" alt="">
     <div class="meta"><b title="${esc(c.file)}">${esc(c.name)}</b><div class="muted">${c.book ? `📚 内嵌世界书 ${c.book} 条` : '无内嵌世界书'} · ${c.greetings} 个开场白 · ${c.size_kb} KB</div>
     <div class="muted" style="margin-top:4px;max-height:48px;overflow:hidden">${esc(c.desc||'')}</div>
-    ${c.book ? `<button class="btn" style="margin-top:6px" onclick="previewBook('${esc(c.file)}')">查看世界书</button>` : ''}
+    <div class="row" style="margin-top:6px"><button class="btn primary" onclick="quickLocalBot('${esc(c.file)}','${esc(c.name)}')">⚡ 本地聊</button><button class="btn" onclick="deployOpen('${esc(c.file)}','${esc(c.name)}')">部署到…</button>${c.book ? `<button class="btn" onclick="previewBook('${esc(c.file)}')">查看世界书</button>` : ''}</div>
     ${c.error ? `<div style="color:var(--bad)">${esc(c.error)}</div>` : ''}</div></div>`).join('') || '<div class="card muted">文件夹为空。点「导入 PNG…」。</div>';
 }
 async function previewBook(file) {
@@ -302,39 +353,176 @@ async function loadWorlds() {
 }
 async function importFiles(kind) { const r = await api('import_files', kind); if (!r.ok) return toast(r.error || '取消'); toast(`已导入 ${r.copied.length} 个文件`); CHARS = WORLDS = null; kind === 'characters' ? loadChars() : loadWorlds(); }
 
-function renderOllama() {
-  const o = OLLAMA; if (!o) return;
+let MD = null, MD_PICK = null;
+async function renderOllama() {
+  MD = await api('models_page'); OLLAMA = MD.ollama;
+  const o = OLLAMA;
   $('#ollama-card').innerHTML = o.ok
-    ? `<div class="row"><span class="pill ok">Ollama 运行中</span><span class="muted">${esc(o.url)}</span></div>
+    ? `<div class="row"><span class="pill ok">Ollama 运行中</span><span class="muted">${esc(o.url)} · 本机内存 ${MD.ram_gb} GB（${esc(MD.tier)} 档）</span></div>
        ${o.missing.length ? `<div style="margin:8px 0;color:var(--warn)">⚠ bot 需要但未安装：${o.missing.map(m=>`<code>${esc(m)}</code> <button class="btn" onclick="pullName('${esc(m)}')">拉取</button>`).join(' ')}</div>` : '<div class="muted" style="margin:8px 0">所有启用 bot 需要的模型都已安装。</div>'}
-       <table style="width:100%;border-collapse:collapse;font-size:13px">${o.models.map(m=>`<tr><td style="padding:4px 0;border-top:1px solid var(--line)"><code>${esc(m.name)}</code></td><td style="text-align:right;border-top:1px solid var(--line)" class="muted">${m.size_gb} GB</td></tr>`).join('')}</table>`
+       <details><summary class="muted" style="cursor:pointer">已安装 ${o.models.length} 个模型</summary><table style="width:100%;border-collapse:collapse;font-size:13px;margin-top:6px">${o.models.map(m=>`<tr><td style="padding:4px 0;border-top:1px solid var(--line)"><code>${esc(m.name)}</code></td><td style="text-align:right;border-top:1px solid var(--line)" class="muted">${m.size_gb} GB</td></tr>`).join('')}</table></details>`
     : `<div class="row"><span class="pill bad">Ollama 未连接</span><span class="muted">${esc(o.error||'')}</span></div>
-       <div class="row" style="margin-top:10px">${o.installed ? '<button class="btn primary" onclick="api(\'ollama_serve\').then(()=>setTimeout(refresh,2500))">启动 Ollama</button>' : '<button class="btn primary" onclick="api(\'open_url\',\'https://ollama.com/download\')">下载安装 Ollama</button>'}</div>`;
+       <div class="row" style="margin-top:10px">${o.installed ? '<button class="btn primary" onclick="api(\'ollama_serve\').then(()=>setTimeout(renderOllama,2500))">启动 Ollama</button>' : '<button class="btn primary" onclick="api(\'open_url\',\'https://ollama.com/download\')">下载安装 Ollama</button>'}</div>`;
+  const it = MD.intro;
+  $('#models-intro').innerHTML = `<b>最少需要几个模型？</b><ol style="margin:6px 0 10px 18px;padding:0">${it.minimum.map(x=>`<li style="margin:3px 0">${esc(x)}</li>`).join('')}</ol>
+    <b>按内存推荐</b><table style="font-size:13px;margin-top:6px;border-collapse:collapse">${Object.entries(it.tiers).map(([k,v])=>`<tr style="${k===MD.tier?'font-weight:600':''}"><td style="padding:3px 10px 3px 0;white-space:nowrap">${k===MD.tier?'👉 ':''}${esc(k)}</td><td style="padding:3px 0">${esc(v)}</td></tr>`).join('')}</table>
+    <div class="muted" style="margin-top:8px">当前各 bot：${MD.bots.map(b=>`<code>${esc(b.name)}</code> → ${esc(b.model.split('/').pop().slice(0,28))}${b.mode==='rpg'?` / 抽取 ${esc(b.extract_model)}`:''}`).join('；')}</div>`;
   const pulls = Object.entries(o.pulls || {});
   $('#pulls').innerHTML = pulls.map(([n, s]) => `<div><code>${esc(n)}</code> — <span class="pill ${s==='done'?'ok':(s.startsWith('failed')?'bad':'warn')}">${esc(s)}</span></div>`).join('');
+  renderModels(); renderDeploys();
 }
+function renderModels() {
+  if (!MD) return;
+  const fit = $('#md-fit').checked;
+  const list = MD.catalog.filter(m => !fit || m.fits);
+  $('#models-grid').innerHTML = list.map(m => `<div class="card" style="${m.recommended?'border-color:var(--accent)':''}">
+    <div class="row" style="justify-content:space-between"><b>${esc(m.name)}</b><span class="pill ${m.role==='extract'?'':'ok'}">${m.role==='extract'?'抽取':'对话 RP'}</span></div>
+    <div class="muted" style="font-size:12px;margin:4px 0">${m.size_gb} GB · 需 ${m.ram_gb} GB 内存 · 中文 ${esc(m.chinese)}${m.recommended?' · <b style="color:var(--accent)">推荐</b>':''}${m.installed?' · <span style="color:var(--ok)">已安装</span>':''}${!m.fits?' · <span style="color:var(--warn)">本机内存不足</span>':''}</div>
+    <div style="font-size:13px;line-height:1.5">${esc(m.desc)}</div>
+    <div class="row" style="margin-top:8px"><button class="btn primary" onclick="mdPick('${esc(m.pull)}','${m.role}')">一键部署</button>
+      ${m.installed?'':`<button class="btn" onclick="pullName('${esc(m.pull)}')">仅拉取</button>`}
+      <a href="#" class="muted" style="font-size:12px" onclick="api('open_url','${esc(m.url)}');return false;">模型页 ↗</a></div>
+    <div class="muted" style="font-size:11px;margin-top:4px"><code>${esc(m.pull)}</code></div></div>`).join('');
+}
+function mdPick(pull, role) {
+  MD_PICK = { pull, role };
+  const bots = MD.bots.filter(b => role !== 'extract' || b.mode === 'rpg');
+  $('#deploy-card').textContent = (role === 'extract' ? '设为抽取模型：' : '设为对话模型：') + pull;
+  $('#deploy-target').innerHTML = '<option value="__all__">所有' + (role === 'extract' ? ' RPG' : '') + ' bot</option>' + bots.map(b => `<option value="${esc(b.name)}">${esc(b.name)} [${b.mode}]</option>`).join('');
+  $('#deploy-new').style.display = 'none'; $('#deploy-go').onclick = mdGo; $('#deploy-bg').classList.add('show');
+}
+async function mdGo() {
+  const v = $('#deploy-target').value;
+  const bots = v === '__all__' ? MD.bots.filter(b => MD_PICK.role !== 'extract' || b.mode === 'rpg').map(b => b.name) : [v];
+  const r = await api('model_deploy', MD_PICK.pull, bots, MD_PICK.role);
+  $('#deploy-bg').classList.remove('show'); $('#deploy-go').onclick = deployGo;
+  toast(r.ok ? '开始部署：先拉取（已安装则跳过），再写入配置并重启引擎' : r.error); setTimeout(renderOllama, 800);
+}
+function renderDeploys() {
+  const jobs = (MD && MD.deploys) || [];
+  $('#models-deploys').innerHTML = jobs.length ? `<div class="card" style="padding:10px 14px"><b>部署进度</b>${jobs.slice().reverse().map(j => `<div style="font-size:13px;margin-top:4px">${{pulling:'⬇ 拉取 '+(j.progress||''),applying:'⚙ 写入配置…',done:'✅ 完成',failed:'❌ 失败'}[j.state]||j.state} — <code>${esc(j.name)}</code> → ${j.bots.map(esc).join('、')} ${j.error?`<span style="color:var(--bad)">${esc(j.error)}</span>`:''}</div>`).join('')}</div>` : '';
+}
+setInterval(() => { if ($('#models').classList.contains('active')) renderOllama(); }, 4000);
 async function pullName(n) { await api('pull_model', n); toast('开始拉取 ' + n); }
 async function pull() { const n = $('#pull-name').value.trim(); if (!n) return; pullName(n); }
 
 async function refreshLog() { if (!$('#logs').classList.contains('active')) return; const el = $('#log'); const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20; el.textContent = await api('logs', 300); if (atBottom) el.scrollTop = el.scrollHeight; }
 
-// ---- store ----
-async function storeOpen() { const r = await api('store_open', ''); toast(r.ok ? '已打开商店窗口' : r.error); setTimeout(storeRefresh, 500); }
-async function storeScan() { const r = await api('store_scan_now', 24); toast(r.imported.length ? `导入 ${r.imported.length} 张：${r.imported.join('、')}` : '没有发现新的角色卡'); CHARS = null; storeRefresh(); }
-async function storeRefresh() {
-  if (!$('#store').classList.contains('active')) return;
-  const s = await api('store_status');
-  $('#store-state').textContent = (s.open ? '商店窗口已打开 · ' : '') + '监视：' + s.downloads_dir;
-  $('#store-imports').innerHTML = s.imports.length ? s.imports.map(i => `<div>${new Date(i.when*1000).toLocaleTimeString()} · <b>${esc(i.name)}</b> <code>${esc(i.file)}</code> — ${esc(i.note)}</div>`).join('') : '（无）';
+// ---- quick local bot + context menu ----
+async function quickLocalBot(file, title) {
+  const base = (title || file.replace(/\.png$/i, '')).replace(/[^A-Za-z0-9_\-\u4e00-\u9fff]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'local-bot';
+  let name = base, r;
+  for (let i = 1; i < 20; i++) { r = await api('deploy_card', file, { new: { name, mode: 'dialogue', kind: 'local', token: '' } }); if (r.ok || !/同名/.test(r.error || '')) break; name = `${base}-${i}`; }
+  if (!r.ok) return toast(r.error); toast(r.note); refresh();
+  CUR_BOT = r.bot; showTab('chat'); chatInit(); $('#chat-bot').value = r.bot; chatOpen();
 }
-setInterval(storeRefresh, 3000);
+let CTX_FILE = null;
+function charContext(ev, file, name) {
+  ev.preventDefault(); CTX_FILE = file;
+  let m = $('#ctx-menu'); if (!m) { m = document.createElement('div'); m.id = 'ctx-menu'; m.className = 'card'; m.style.cssText = 'position:fixed;z-index:60;padding:6px;min-width:190px;box-shadow:0 8px 30px rgba(0,0,0,.25)'; document.body.appendChild(m); document.addEventListener('click', () => m.style.display = 'none'); }
+  m.innerHTML = `<div style="padding:6px 10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:260px">${esc(name)}</div>
+    <button class="btn" style="display:block;width:100%;text-align:left;border:0" onclick="quickLocalBot('${esc(file)}','${esc(name)}')">⚡ 生成本地 bot 并开始聊天</button>
+    <button class="btn" style="display:block;width:100%;text-align:left;border:0" onclick="deployOpen('${esc(file)}','${esc(name)}')">🚀 部署到…</button>
+    <button class="btn" style="display:block;width:100%;text-align:left;border:0" onclick="previewBook('${esc(file)}')">📚 查看世界书</button>
+    <button class="btn" style="display:block;width:100%;text-align:left;border:0" onclick="api('open_path','characters')">📁 在 Finder 中显示</button>`;
+  m.style.left = Math.min(ev.clientX, window.innerWidth - 280) + 'px'; m.style.top = Math.min(ev.clientY, window.innerHeight - 180) + 'px'; m.style.display = 'block';
+}
+
+// ---- one-click deploy ----
+let DEPLOY_FILE = null;
+async function deployOpen(file, title) {
+  DEPLOY_FILE = file; $('#deploy-card').textContent = (title || file) + '  (' + file + ')';
+  const t = await api('deploy_targets');
+  const opts = t.bots.map(b => `<option value="${esc(b.name)}">${esc(b.name)} [${b.mode}${b.kind==='local'?'·本地':''}]${b.characters.includes(file) ? ' · 已包含' : ''}${(b.has_token||b.kind==='local') ? '' : ' · 无 token'}</option>`).join('');
+  $('#deploy-target').innerHTML = opts + '<option value="__new__">＋ 新建一个 bot</option>';
+  if (!t.bots.length) $('#deploy-target').value = '__new__';
+  deployModeChange(); $('#deploy-bg').classList.add('show');
+}
+function deployModeChange() { $('#deploy-new').style.display = $('#deploy-target').value === '__new__' ? '' : 'none'; }
+function deployClose() { $('#deploy-bg').classList.remove('show'); DEPLOY_FILE = null; }
+async function deployGo() {
+  if (!DEPLOY_FILE) return;
+  const tv = $('#deploy-target').value;
+  const target = tv === '__new__' ? { new: { name: $('#deploy-name').value, mode: $('#deploy-mode').value, kind: $('#deploy-kind').value, token: $('#deploy-token').value } } : { bot: tv };
+  $('#deploy-go').disabled = true;
+  const r = await api('deploy_card', DEPLOY_FILE, target);
+  $('#deploy-go').disabled = false;
+  if (!r.ok) return toast(r.error);
+  $('#deploy-token').value = ''; deployClose(); toast(r.note || '已部署'); refresh();
+}
+
+// ---- store (aicharactercards.com API) ----
+let ST = { items: [], skip: 0, total: 0, sel: new Set(), meta: null, busy: false };
+async function storeInit() {
+  storeAuth();
+  if (!ST.meta) {
+    const m = await api('store_meta'); ST.meta = m;
+    if (m.ok) {
+      $('#st-lang').innerHTML = '<option value="">所有语言</option>' + m.languages.map(l => `<option value="${esc(l.code)}">${esc(l.name)}</option>`).join('');
+      $('#st-tag').innerHTML = '<option value="">所有标签</option>' + m.tags.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join('');
+    } else toast('商店不可达：' + m.error);
+  }
+  if (!ST.items.length) storeReload();
+}
+async function storeAuth() {
+  const a = await api('store_auth');
+  $('#store-auth').innerHTML = a.logged_in
+    ? `<span class="pill ok">已登录 ${esc(a.user?.username || a.user?.email || '')}</span><button class="btn" onclick="api('store_logout').then(storeAuth)">退出</button>`
+    : `<span class="pill">未登录（NSFW 等内容需登录）</span><button class="btn primary" onclick="api('store_login').then(()=>toast('已打开登录窗口，登录成功后会自动关闭'))">登录</button>`;
+}
+function storeParams(skip) {
+  return { source: $('#st-source').value, search: $('#st-search').value.trim(), language: $('#st-lang').value,
+           tags: $('#st-tag').value ? [parseInt($('#st-tag').value)] : [], nsfw: $('#st-nsfw').value, sort: $('#st-order').value, limit: 24, skip };
+}
+async function storeReload() { ST.items = []; ST.skip = 0; ST.sel.clear(); $('#st-all').checked = false; await storeFetch(); }
+async function storeMore() { ST.skip += 24; await storeFetch(); }
+async function storeFetch() {
+  if (ST.busy) return; ST.busy = true; $('#st-more').disabled = true; $('#st-count').textContent = '加载中…';
+  const r = await api('store_browse', storeParams(ST.skip));
+  ST.busy = false; $('#st-more').disabled = false;
+  if (!r.ok) { $('#st-count').textContent = '❌ ' + r.error; return; }
+  ST.items = ST.items.concat(r.items); ST.total = r.total;
+  $('#st-count').textContent = `共 ${ST.total} 张 · 已加载 ${ST.items.length}`;
+  $('#st-more').style.display = (ST.items.length < ST.total && $('#st-source').value !== 'trending') ? '' : 'none';
+  storeRender();
+}
+function storeRender() {
+  $('#st-grid').innerHTML = ST.items.map(c => `<div class="card sc ${ST.sel.has(c.id) ? 'sel' : ''}" onclick="storeToggle(${c.id}, event)">
+    <input class="cb" type="checkbox" ${ST.sel.has(c.id) ? 'checked' : ''} onclick="event.stopPropagation();storeToggle(${c.id})">
+    <img src="${esc(c.image)}" loading="lazy" alt="">
+    <div style="min-width:0;flex:1"><div class="t" title="${esc(c.title_orig || c.title)}">${esc(c.title)}${c.nsfw ? '<span class="badge">NSFW</span>' : ''}${c.owned ? '<span class="badge own">已拥有</span>' : ''}</div>
+      <div class="muted" style="font-size:12px">@${esc(c.author)} · ${c.downloads} 下载 · ${c.rating ? '★' + Number(c.rating).toFixed(1) : '未评分'} · ${c.tokens} tok · ${esc(c.language)}</div>
+      <div class="tags">${c.tags.slice(0, 4).map(t => `<span>${esc(t)}</span>`).join('')}</div>
+      <div class="ex">${esc(c.excerpt)}</div>
+      <div class="muted" style="font-size:11px;margin-top:4px"><a href="#" onclick="event.stopPropagation();api('open_url','${esc(c.url)}');return false;" style="color:var(--accent)">在网站查看 ↗</a></div>
+    </div></div>`).join('') || '<div class="card muted">没有结果。</div>';
+  $('#st-dl').textContent = `下载选中 (${ST.sel.size})`; $('#st-dl').disabled = ST.sel.size === 0;
+}
+function storeToggle(id, ev) { if (ev && ev.target.tagName === 'A') return; ST.sel.has(id) ? ST.sel.delete(id) : ST.sel.add(id); storeRender(); }
+function storeToggleAll() { const on = $('#st-all').checked; ST.items.forEach(c => on ? ST.sel.add(c.id) : ST.sel.delete(c.id)); storeRender(); }
+async function storeDownloadSelected() {
+  const items = ST.items.filter(c => ST.sel.has(c.id)).map(c => ({ id: c.id, title: c.title }));
+  if (!items.length) return;
+  const r = await api('store_download', items); toast(`已加入下载队列 ${r.queued} 张`); ST.sel.clear(); storeRender(); storeProgress();
+}
+async function storeProgress() {
+  if (!$('#store').classList.contains('active')) return;
+  const p = await api('store_progress');
+  if (!p.jobs.length) { $('#st-progress').innerHTML = ''; return; }
+  const st = { queued: '排队', downloading: '下载中…', done: '✅ 完成', failed: '❌ 失败' };
+  $('#st-progress').innerHTML = `<div class="card" style="padding:10px 14px"><div class="row" style="justify-content:space-between"><b>下载队列</b>
+    <button class="btn" onclick="api('store_clear_done').then(storeProgress)">清除已完成</button></div>
+    ${p.jobs.slice().reverse().map(j => `<div style="font-size:13px;margin-top:4px">${st[j.state] || j.state} — ${esc(j.title)} ${j.file ? `<code>${esc(j.file)}</code> <button class="btn" style="padding:2px 8px" onclick="deployOpen('${esc(j.file)}','${esc(j.title)}')">部署</button>` : ''} ${j.error ? `<span style="color:var(--bad)">${esc(j.error)}</span>` : ''}</div>`).join('')}</div>`;
+  if (!p.active && p.jobs.some(j => j.state === 'done')) { CHARS = null; ST.items.forEach(c => { if (p.jobs.some(j => j.id === c.id && j.state === 'done')) c.owned = true; }); storeRender(); }
+}
+setInterval(storeProgress, 1500); setInterval(() => { if ($('#store').classList.contains('active')) storeAuth(); }, 5000);
 
 // ---- local chat ----
 let CHAT_BOT = null, CHAT_VER = -1, CHAT_TIMER = null;
 function chatInit() {
   if (!STATE) return;
   const sel = $('#chat-bot'); const prev = sel.value;
-  sel.innerHTML = '<option value="">选择 bot…</option>' + STATE.bots.map(b => `<option value="${esc(b.name)}">${esc(b.name)} (${b.mode})</option>`).join('');
+  sel.innerHTML = '<option value="">选择 bot…</option>' + STATE.bots.map(b => `<option value="${esc(b.name)}">${esc(b.name)} (${b.mode}${b.kind==='local'?'·本地':''})</option>`).join('');
   if (prev) sel.value = prev;
   if (!CHAT_TIMER) CHAT_TIMER = setInterval(chatPoll, 700);
 }

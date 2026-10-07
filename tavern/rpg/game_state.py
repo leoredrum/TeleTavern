@@ -38,7 +38,8 @@ STATE_GUARD = """[STATE GUARD — 最高优先级 / HIGHEST PRIORITY]
 - 永远不要复活已死亡的 NPC 或敌人（Never revive dead NPCs/enemies）。
 - 永远不要重新激活已解除的陷阱（Never recreate removed/disabled traps）。
 - 永远不要忽视「CURRENT WORLD STATE」。
-- 「CURRENT WORLD STATE」永远拥有最高优先级；若聊天历史与之冲突，必须以「CURRENT WORLD STATE」为准。"""
+- 「CURRENT WORLD STATE」永远拥有最高优先级；若聊天历史与之冲突，必须以「CURRENT WORLD STATE」为准。
+- 叙述正文只写故事本身：严禁把「CURRENT WORLD STATE / RPG SNAPSHOT / DIRECTOR STATE」等状态块、属性表、数值清单、分隔线或括号标记原样复述、罗列或粘贴进你的回复。这些只是给你参考的内部资料，玩家不该在故事里看到它们。"""
 
 WORLD_STATE_HEADER_TOP = "==================\nCURRENT WORLD STATE\n=================="
 WORLD_STATE_HEADER_BOT = "=================="
@@ -491,21 +492,11 @@ class StateUpdater:
             self.mgr.set_flag(st.session_id, f"loot:{item}", "taken", turn)
             changes.append({"category": "loot", "entity": item, "change": "+inventory"})
 
-        # 6) damage / heal to player
-        for mm in re.finditer(r"(?:受到|损失|扣除|承受)(?:了|\s)*(\d+)\s*(?:点)?\s*(?:伤害|生命值)", reply):
-            try:
-                dmg = int(mm.group(1))
-                p.player["hp"] = max(0, int(p.player.get("hp", 0)) - dmg)
-                changes.append({"category": "player", "entity": "hp", "change": f"-{dmg}→{p.player['hp']}"})
-            except ValueError:
-                pass
-        for mm in re.finditer(r"(?:恢复|回复|治疗|增加)(?:了|\s)*(\d+)\s*(?:点)?\s*(?:生命值|生命|血)", reply):
-            try:
-                heal = int(mm.group(1))
-                p.player["hp"] = min(int(p.player.get("max_hp", 999)), int(p.player.get("hp", 0)) + heal)
-                changes.append({"category": "player", "entity": "hp", "change": f"+{heal}→{p.player['hp']}"})
-            except ValueError:
-                pass
+        # 6) player HP is handled authoritatively by RuleEngine.apply_hp_tags()
+        #    (parses the LLM's 〔HP±N〕 machine tags) in rpg.py, not by this
+        #    narrative regex. The old prose-regex path here was unreliable
+        #    (missed phrasings like 「受到3点穿刺伤害」) and wrote to an orphan
+        #    persistent.player.hp that was never displayed — removed.
 
         # 7) record timeline deltas
         for c in changes:

@@ -144,6 +144,58 @@ class LocalChat:
             out["session"] = {"id": s["session_id"], "title": s.get("title")} if s else None
         return out
 
+    def rpg_state(self, name: str) -> dict | None:
+        """Structured world + player state for the desktop app's side status bar.
+        Returns None if the bot isn't RPG or has no active local session. Reflects
+        whatever state exists, so it adapts to any scenario / world book."""
+        bot = self.bot(name)
+        if not isinstance(bot, RPGBot):
+            return None
+        s = bot.sessions.active(LOCAL_CHAT_ID)
+        if not s:
+            return None
+        sid = s["session_id"]
+        st = bot.gsm.get_or_init(sid)
+        p = st.persistent.to_dict()
+        n = st.narrative.to_dict()
+        out = {
+            "session_title": s.get("title"),
+            "location": p.get("location"), "room": p.get("room") or p.get("area"),
+            "scene": p.get("current_scene"), "objective": p.get("current_objective"),
+            "quest": p.get("current_quest"),
+            "environment": p.get("environment"), "weather": p.get("weather"),
+            "time_of_day": p.get("time_of_day"),
+            "scene_summary": n.get("scene_summary"),
+            "enemies": [{"name": e.get("name"), "status": e.get("status")} for e in (p.get("enemies") or [])],
+            "npcs": [{"name": e.get("name"), "status": e.get("status")} for e in (p.get("npcs") or [])],
+            "loot": [{"name": l.get("name"), "taken": bool(l.get("taken"))} for l in (p.get("loot") or [])],
+            "flags": bot.gsm.all_flags(sid),
+            "player": None, "inventory": [], "quests": [],
+        }
+        if bot.rule:
+            snap = bot.rule.get_or_init(sid)
+            pl = snap.player
+            player = {
+                "name": pl.get("name"), "race": pl.get("race"), "class": pl.get("class"),
+                "level": pl.get("level"), "xp": pl.get("xp"), "xp_to_next": pl.get("xp_to_next"),
+                "hp": pl.get("hp"), "max_hp": pl.get("max_hp"), "ac": pl.get("ac"),
+                "stats": pl.get("stats") or {}, "conditions": pl.get("conditions") or [],
+                "abilities": pl.get("abilities") or [],
+                "downed": int(pl.get("hp", 0)) <= 0 or "倒下" in (pl.get("conditions") or []),
+            }
+            try:
+                from .rpg.rpg_engine import coins_str
+                player["gold"] = coins_str(int((snap.economy or {}).get("copper", 0)))
+            except Exception:  # noqa: BLE001
+                player["gold"] = None
+            out["player"] = player
+            out["inventory"] = [{"name": r.get("name"), "qty": r.get("qty"),
+                                 "equipped": bool(r.get("equipped"))} for r in bot.rule.inventory(sid)]
+            out["quests"] = [{"title": q.get("title"), "objective": q.get("objective"),
+                              "status": q.get("status"), "progress": q.get("progress", 0)}
+                             for q in snap.quests if q.get("status") in ("active", "available")]
+        return out
+
     def send(self, name: str, text: str) -> None:
         bot = self.bot(name)
         text = (text or "").strip()

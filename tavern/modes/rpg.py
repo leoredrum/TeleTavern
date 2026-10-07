@@ -83,8 +83,34 @@ class RPGBot:
     def lock(self, chat_id: int) -> asyncio.Lock:
         return self.locks.setdefault(chat_id, asyncio.Lock())
 
+    # strip the DM's hidden HP machine tags (〔HP-5〕/【HP+3】/[HP-2]) from the
+    # player-visible text — they are parsed authoritatively, not shown.
+    _HP_TAG_STRIP = re.compile(r"[〔【\[]\s*HP\s*[+-]\s*\d+\s*[〕】\]]")
+
     def post(self, text: str) -> str:
-        return apply_translation(text, self.cfg.translation_table)
+        text = apply_translation(text, self.cfg.translation_table)
+        text = self._HP_TAG_STRIP.sub("", text)
+        return text
+
+    def status_panel(self, st, session_id: str) -> str:
+        """Compact, clearly-separated status panel appended AFTER the narration,
+        so story and numbers never blur together (rules bots only)."""
+        p = st.persistent.to_dict()
+        loc = p.get("location") or "未知"
+        ens = [e.get("name", "?") for e in (p.get("enemies") or []) if e.get("status") == "alive"]
+        lines = ["━━━━━━ 状态 ━━━━━━"]
+        snap = self.rule.get_or_init(session_id)
+        pl = snap.player
+        downed = int(pl.get("hp", 0)) <= 0 or "倒下" in (pl.get("conditions") or [])
+        head = "💀 已倒下（濒死）" if downed else "❤️"
+        lines.append("%s HP %d/%d　🛡 AC %d　⭐ Lv.%d" % (
+            head, int(pl.get("hp", 0)), int(pl.get("max_hp", 0)),
+            int(pl.get("ac", 0)), int(pl.get("level", 1))))
+        conds = [c for c in (pl.get("conditions") or []) if c != "倒下"]
+        if conds:
+            lines.append("状态：" + "、".join(conds))
+        lines.append("📍 " + loc + ("　⚔ 敌人：" + "、".join(ens) if ens else ""))
+        return "\n".join(lines)
 
     def thread(self, chat_id: int, session_id: str) -> str:
         return f"{chat_id}:{session_id}"
@@ -128,10 +154,13 @@ class RPGBot:
             self.store.append(th, "user", user_text)
             history = self.store.history(th, self.cfg.history_limit)
             anchor = self.rt.anchor_item(self.anchor_text(st, sid), depth=1, iid="world_state")
+            raw_sink: list = []
             final = await stream_reply(msg, self.rt.stream(history, user_text, extra_items=[anchor]),
-                                       placeholder_text="🎲 正在演绎……", postprocess=self.post)
+                                       placeholder_text="🎲 正在演绎……", postprocess=self.post,
+                                       raw_sink=raw_sink)
             if not final:
                 return
+            raw = raw_sink[0] if raw_sink else final  # pre-strip text, carries 〔HP±N〕 tags
             self.store.append(th, "assistant", final)
             self.sessions.record(session, "gm", turn, final, {"model": self.cfg.model})
 
@@ -143,6 +172,9 @@ class RPGBot:
                 llm_changes = SX.apply_extraction(self.gsm, st, turn, data)
                 changes = (changes or []) + llm_changes
                 rule_changes = self.rule.intake(sid, turn, changes, final) if self.rule else []
+                # authoritative player-HP update from the DM's 〔HP±N〕 tags
+                if self.rule:
+                    rule_changes = (rule_changes or []) + self.rule.apply_hp_tags(sid, turn, raw)
                 director_changes = (self.director.intake(sid, turn, changes, rule_changes, final, st)
                                     if self.director else [])
                 conflicts = G.StateValidator(self.gsm).validate(st, turn, final)
@@ -158,6 +190,14 @@ class RPGBot:
                          len(director_changes), len(conflicts))
             except Exception as exc:  # noqa: BLE001
                 log.warning("[%s] state engine error: %s", self.cfg.name, exc)
+            # Telegram can't show a side panel, so append a compact status panel
+            # as a separate message. In the desktop app (chat_id == -1) the UI's
+            # side status bar handles this, so we don't clutter the transcript.
+            if self.rule and chat_id != -1:
+                try:
+                    await msg.reply_text(self.status_panel(st, sid))
+                except Exception:  # noqa: BLE001
+                    pass
             self.sessions.touch(sid)
 
     # ---- commands ----------------------------------------------------------------------------

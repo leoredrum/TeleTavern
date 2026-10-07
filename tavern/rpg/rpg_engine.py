@@ -100,23 +100,26 @@ def coins_str(copper: int) -> str:
 # Class templates — base stats at level 1. (stats use standard 4..18 range.)
 #   base_hp, hit_die (avg gain per level), base_ac, prime_stat, spell_slots{level:slots}
 # --------------------------------------------------------------------------- #
+# base_hp tuned for "medium" difficulty (~2x the old D&D-level-1 values) so a
+# single fight can't one-shot the character; combined with the per-hit damage
+# cap in damage_player(). hit_die_avg (per-level gain) raised to match.
 CLASS_TEMPLATES = {
-    "战士": {"en": "Fighter", "base_hp": 12, "hit_die_avg": 7, "base_ac": 16,
+    "战士": {"en": "Fighter", "base_hp": 24, "hit_die_avg": 12, "base_ac": 16,
             "prime": "力量", "stats": {"力量": 16, "体质": 14, "敏捷": 12, "智力": 10, "感知": 10, "魅力": 10},
             "spell_slots": {}, "abilities": ["回血(第二春)", "战斗风格"]},
-    "法师": {"en": "Wizard", "base_hp": 6, "hit_die_avg": 4, "base_ac": 12,
+    "法师": {"en": "Wizard", "base_hp": 14, "hit_die_avg": 8, "base_ac": 12,
             "prime": "智力", "stats": {"力量": 8, "体质": 10, "敏捷": 12, "智力": 16, "感知": 12, "魅力": 10},
             "spell_slots": {1: 2}, "abilities": ["奥术恢复", "戏法"]},
-    "牧师": {"en": "Cleric", "base_hp": 8, "hit_die_avg": 5, "base_ac": 15,
+    "牧师": {"en": "Cleric", "base_hp": 18, "hit_die_avg": 10, "base_ac": 15,
             "prime": "感知", "stats": {"力量": 12, "体质": 12, "敏捷": 10, "智力": 10, "感知": 16, "魅力": 12},
             "spell_slots": {1: 2}, "abilities": ["治疗之言", "神圣法术"]},
-    "游荡者": {"en": "Rogue", "base_hp": 8, "hit_die_avg": 5, "base_ac": 14,
+    "游荡者": {"en": "Rogue", "base_hp": 18, "hit_die_avg": 10, "base_ac": 14,
              "prime": "敏捷", "stats": {"力量": 10, "体质": 12, "敏捷": 16, "智力": 12, "感知": 10, "魅力": 12},
              "spell_slots": {}, "abilities": ["偷袭", "巧手"]},
-    "游侠": {"en": "Ranger", "base_hp": 10, "hit_die_avg": 6, "base_ac": 14,
+    "游侠": {"en": "Ranger", "base_hp": 20, "hit_die_avg": 11, "base_ac": 14,
             "prime": "敏捷", "stats": {"力量": 12, "体质": 12, "敏捷": 16, "智力": 10, "感知": 14, "魅力": 10},
             "spell_slots": {}, "abilities": ["宿敌", "自然探索"]},
-    "圣武士": {"en": "Paladin", "base_hp": 10, "hit_die_avg": 6, "base_ac": 16,
+    "圣武士": {"en": "Paladin", "base_hp": 22, "hit_die_avg": 11, "base_ac": 16,
              "prime": "魅力", "stats": {"力量": 16, "体质": 14, "敏捷": 10, "智力": 10, "感知": 10, "魅力": 14},
              "spell_slots": {1: 2}, "abilities": ["神圣感知", "圣疗"]},
 }
@@ -236,10 +239,16 @@ CREATE INDEX IF NOT EXISTS idx_rpg_rulelog_session ON rpg_rule_log(session_id, t
 """
 
 RPG_GUARD = """[RPG RULE GUARD — 游戏规则由程序裁定 / RULES ARE PROGRAM-OWNED]
-- 经验（XP）、金币（Gold）、等级（Level）、属性（Stats）、物品（Items）、装备（Equipment）、掉落（Loot）、任务进度（Quest Progress）一律以「RPG SNAPSHOT」中的数值为准。
-- 你不得自行增减 XP、金币、等级或属性数值；不得凭空创造不在「AVAILABLE LOOT / INVENTORY」中的装备。
+- 经验（XP）、金币（Gold）、等级（Level）、属性（Stats）、物品（Items）、装备（Equipment）、掉落（Loot）、任务进度（Quest Progress）、生命值（HP）一律以「RPG SNAPSHOT」中的数值为准。
+- 你不得自行增减 XP、金币、等级、属性或 HP 数值；不得凭空创造不在「AVAILABLE LOOT / INVENTORY」中的装备。
 - 你只能描述战斗与冒险的过程与结果（叙事）；数字与物品的授予/扣除由规则引擎完成。
-- 若叙事所需的数值与「RPG SNAPSHOT」不一致，以「RPG SNAPSHOT」为准并据此描述。"""
+- 若叙事所需的数值与「RPG SNAPSHOT」不一致，以「RPG SNAPSHOT」为准并据此描述。
+
+[HP 变化——必须用隐藏标记传达 / HP CHANGES VIA HIDDEN TAG]
+- 当玩家受到伤害或被治疗时，在相应那句叙述的句末追加一个隐藏标记：受伤写「〔HP-数字〕」，治疗写「〔HP+数字〕」。例：剑锋划过你的手臂，鲜血涌出。〔HP-5〕
+- 一次伤害/治疗事件只写一个标记，数字就是本次 HP 变化量。标记由程序读取后会自动从玩家可见文本中删除，所以除了这个标记，叙述正文里不要再出现任何 HP 数字或「还剩多少血」之类的话。
+- 伤害要符合情境且适度：单次攻击通常 2～8 点，重击/陷阱可更高，但不要一下子打掉玩家大半血。玩家当前 HP 见「RPG SNAPSHOT」。
+- 当「RPG SNAPSHOT」显示玩家 HP 为 0 或带有「倒下」状态时：玩家已濒死/失去战斗力，绝不能让玩家继续战斗、反杀或取得胜利；必须叙述昏迷、被制服、濒死或需要被救治的后果，直到被治疗恢复 HP。"""
 
 
 # --------------------------------------------------------------------------- #
@@ -472,6 +481,10 @@ class RuleEngine:
         if amount <= 0:
             return []
         snap = self.get_or_init(session_id)
+        # medium difficulty: a single hit cannot exceed half of max HP, so no
+        # one-shot kill from full health (sustained damage can still drop you).
+        max_hp = int(snap.player.get("max_hp", 1)) or 1
+        amount = min(int(amount), max(4, max_hp // 2))
         before = snap.player["hp"]
         snap.player["hp"] = max(0, int(snap.player["hp"]) - int(amount))
         if snap.player["hp"] == 0 and "倒下" not in snap.player["conditions"]:
@@ -502,6 +515,42 @@ class RuleEngine:
                          (amount, reason or "治疗", snap.player["hp"], snap.player["max_hp"]))
         return [self._change("hp", snap.player["name"],
                              "+%d→%d" % (amount, snap.player["hp"]))]
+
+    # machine tags the DM emits for HP changes: 〔HP-5〕 / 【HP+3】 / [HP-2]
+    _HP_TAG_RX = re.compile(r"[〔【\[]\s*HP\s*([+-])\s*(\d+)\s*[〕】\]]")
+    # fallback prose patterns (only used if the DM forgot the tag)
+    _DMG_PROSE_RX = re.compile(r"(?:受到|损失|扣除|承受|失去)[^。！？\n]{0,8}?(\d+)[^。！？\n]{0,4}?(?:点)?\s*(?:伤害|生命|血|HP)")
+    _HEAL_PROSE_RX = re.compile(r"(?:恢复|回复|治疗|治愈|回[了]?)[^。！？\n]{0,8}?(\d+)[^。！？\n]{0,4}?(?:点)?\s*(?:生命|血|HP)")
+
+    def apply_hp_tags(self, session_id: str, turn: int, dm_reply: str) -> list:
+        """Authoritatively apply the player's HP changes for this turn.
+
+        Primary source = the DM's hidden 〔HP±N〕 machine tags. If none are
+        present (model forgot), fall back to a broadened prose scan so a clearly
+        narrated hit still lands. This is the SINGLE authority for player HP."""
+        text = dm_reply or ""
+        changes = []
+        tags = self._HP_TAG_RX.findall(text)
+        if tags:
+            for sign, num in tags:
+                n = int(num)
+                if sign == "-":
+                    changes.extend(self.damage_player(session_id, n, turn=turn, reason="战斗"))
+                else:
+                    changes.extend(self.heal_player(session_id, n, turn=turn, reason="恢复"))
+            return changes
+        # fallback: sum prose-detected damage / heal (one application each)
+        dmg = sum(int(m) for m in self._DMG_PROSE_RX.findall(text))
+        heal = sum(int(m) for m in self._HEAL_PROSE_RX.findall(text))
+        if dmg:
+            changes.extend(self.damage_player(session_id, dmg, turn=turn, reason="战斗"))
+        if heal:
+            changes.extend(self.heal_player(session_id, heal, turn=turn, reason="恢复"))
+        return changes
+
+    def player_downed(self, session_id: str) -> bool:
+        snap = self.get_or_init(session_id)
+        return int(snap.player.get("hp", 0)) <= 0 or "倒下" in (snap.player.get("conditions") or [])
 
     # ---- ECONOMY -------------------------------------------------------------
     def grant_gold(self, session_id: str, gold: int = 0, silver: int = 0,
@@ -1017,6 +1066,8 @@ class RuleEngine:
                                          int(p.get("xp_to_next", xp_to_next(int(p.get("level", 1)))))),
             "HP: %d / %d   AC: %d" % (int(p.get("hp", 0)), int(p.get("max_hp", 0)),
                                       int(p.get("ac", 0))),
+            *(["⚠ 玩家已倒下/濒死：失去战斗力，不能行动或取胜，必须叙述昏迷/被制服/濒死后果，直到被治疗。"]
+              if (int(p.get("hp", 0)) <= 0 or "倒下" in (p.get("conditions") or [])) else []),
             "Stats: " + ("; ".join("%s %d" % (k, v) for k, v in (p.get("stats") or {}).items()) or "（无）"),
             "Status: %s   Conditions: %s" % (p.get("status", "正常"),
                                              "、".join(p.get("conditions") or []) or "无"),

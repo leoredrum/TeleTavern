@@ -411,6 +411,13 @@ class Api:
     def local_poll(self, name: str) -> dict:
         return self.local.convo(name).snapshot()
 
+    def local_rpg_state(self, name: str) -> dict:
+        """Structured RPG state for the chat side status bar (None if not RPG)."""
+        try:
+            return {"ok": True, "state": self.local.rpg_state(name)}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:200]}
+
     def local_clear(self, name: str) -> dict:
         try:
             n = self.local.clear(name)

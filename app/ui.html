@@ -40,12 +40,25 @@
   .list { max-height:180px; overflow:auto; border:1px solid var(--line); border-radius:8px; padding:6px 10px; background:var(--bg); }
   .chat { display:flex; flex-direction:column; height:calc(100vh - 44px); }
   .chat .bar { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:10px; }
+  .chat-body { flex:1; display:flex; gap:12px; min-height:0; }
   .msgs { flex:1; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; -webkit-user-select:text; }
-  .m { max-width:78%; margin:6px 0; padding:9px 13px; border-radius:14px; white-space:pre-wrap; line-height:1.5; }
+  .m { max-width:82%; margin:12px 0; padding:9px 13px; border-radius:14px; white-space:pre-wrap; line-height:1.5; }
   .m.user { margin-left:auto; background:var(--accent); color:#fff; }
-  .m.assistant { background:rgba(127,127,127,.14); }
-  .m.system { margin:8px auto; font-size:12px; color:var(--muted); background:none; text-align:center; }
+  /* 剧情：衬线字体 + 更宽行距，与界面/系统文字区分 */
+  .m.assistant { background:rgba(127,127,127,.12); font-family:"Noto Serif SC","Songti SC",Georgia,"Times New Roman",serif; line-height:1.75; font-size:15px; }
+  .m.system { margin:14px auto; font-size:12px; color:var(--muted); background:none; text-align:center; letter-spacing:.3px; }
   .m.file { background:rgba(10,132,255,.12); cursor:pointer; }
+  /* 侧边状态栏 */
+  .chat-side { width:272px; flex:none; overflow:auto; background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:12px; font-size:13px; }
+  .chat-side .side-card { background:rgba(127,127,127,.08); border:1px solid var(--line); border-radius:10px; padding:8px 10px; margin-bottom:8px; }
+  .chat-side .side-h { font-weight:600; margin-bottom:5px; }
+  .chat-side .side-sub { color:var(--muted); font-size:12px; }
+  .chat-side .side-row { margin:3px 0; }
+  .chat-side .side-dead { color:var(--muted); text-decoration:line-through; }
+  .chat-side .side-stats { display:flex; flex-wrap:wrap; gap:4px 8px; }
+  .chat-side .hpbar { position:relative; height:18px; background:rgba(127,127,127,.22); border-radius:9px; overflow:hidden; margin:5px 0; }
+  .chat-side .hpfill { position:absolute; left:0; top:0; bottom:0; transition:width .4s; }
+  .chat-side .hpbar span { position:relative; z-index:1; font-size:12px; line-height:18px; padding-left:8px; }
   .m.busy::after { content:" ▌"; animation:blink 1s infinite; } @keyframes blink { 50% { opacity:0; } }
   .composer { display:flex; gap:8px; margin-top:10px; }
   .composer textarea { flex:1; min-height:44px; max-height:140px; font-family:inherit; font-size:14px; }
@@ -107,7 +120,10 @@
         <span id="chat-tools"></span>
         <span class="muted" id="chat-info"></span>
       </div>
-      <div class="msgs" id="chat-msgs"><div class="m system">选择一个 bot 开始。本地聊天与 Telegram 共用同一套角色、世界书和世界状态，但对话互相独立。</div></div>
+      <div class="chat-body">
+        <div class="msgs" id="chat-msgs"><div class="m system">选择一个 bot 开始。本地聊天与 Telegram 共用同一套角色、世界书和世界状态，但对话互相独立。</div></div>
+        <aside class="chat-side" id="chat-side" style="display:none"></aside>
+      </div>
       <div class="composer"><textarea id="chat-input" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
         <button class="btn primary" id="chat-send" onclick="chatSend()">发送</button></div>
     </div>
@@ -545,6 +561,7 @@ function chatInit() {
 async function chatOpen() {
   CHAT_BOT = $('#chat-bot').value || null; CHAT_VER = -1;
   $('#chat-char').style.display = 'none'; $('#chat-tools').innerHTML = ''; $('#chat-info').textContent = '';
+  $('#chat-side').style.display = 'none';
   if (!CHAT_BOT) return;
   $('#chat-msgs').innerHTML = '<div class="m system">加载中…</div>';
   const info = await api('local_info', CHAT_BOT);
@@ -558,6 +575,7 @@ async function chatOpen() {
     $('#chat-info').textContent = info.session ? `当前局：${info.session.title} (${info.session.id})` : '尚无游戏局，点「新游戏」';
   }
   renderChat(info);
+  chatSideRender();
 }
 async function chatSelectChar() { const f = $('#chat-char').value; if (!f || !CHAT_BOT) return; await api('local_select', CHAT_BOT, f); CHAT_VER = -1; }
 async function chatCmd(cmd) { if (!CHAT_BOT) return; await api('local_cmd', CHAT_BOT, cmd, ''); }
@@ -579,7 +597,49 @@ async function chatPoll() {
   if (!CHAT_BOT || !$('#chat').classList.contains('active')) return;
   const snap = await api('local_poll', CHAT_BOT);
   if (snap.version === CHAT_VER) return;
-  CHAT_VER = snap.version; renderChat(snap);
+  CHAT_VER = snap.version; renderChat(snap); chatSideRender();
+}
+async function chatSideRender() {
+  const side = $('#chat-side');
+  if (!CHAT_BOT) { side.style.display = 'none'; return; }
+  const r = await api('local_rpg_state', CHAT_BOT);
+  const s = r && r.ok ? r.state : null;
+  if (!s) { side.style.display = 'none'; return; }   // 非 RPG / 无进行中局 → 不显示侧栏
+  side.style.display = '';
+  const cards = [];
+  const p = s.player;
+  if (p) {
+    const pct = p.max_hp ? Math.max(0, Math.min(100, Math.round(p.hp * 100 / p.max_hp))) : 0;
+    const hpColor = p.downed ? 'var(--bad)' : (pct <= 30 ? 'var(--warn)' : 'var(--ok)');
+    cards.push(`<div class="side-card">
+      <div class="side-h">${esc(p.name || '冒险者')} <span class="side-sub">${esc(p.race || '')} ${esc(p.class || '')} · Lv.${p.level || 1}</span></div>
+      <div class="hpbar"><div class="hpfill" style="width:${pct}%;background:${hpColor}"></div><span>${p.downed ? '💀 倒下' : '❤️'} HP ${p.hp}/${p.max_hp}</span></div>
+      <div class="side-row">🛡 AC ${p.ac} · ⭐ XP ${p.xp}${p.gold ? ' · 💰 ' + esc(p.gold) : ''}</div>
+      ${(p.conditions && p.conditions.length) ? `<div class="side-row">状态：${p.conditions.map(esc).join('、')}</div>` : ''}
+      ${(p.stats && Object.keys(p.stats).length) ? `<div class="side-row side-stats">${Object.entries(p.stats).map(([k, v]) => `<span>${esc(k)} ${v}</span>`).join('')}</div>` : ''}
+    </div>`);
+  }
+  const locBits = [];
+  if (s.location) locBits.push('📍 ' + esc(s.location));
+  if (s.room) locBits.push(esc(s.room));
+  if (s.time_of_day) locBits.push('🕑 ' + esc(s.time_of_day));
+  if (s.weather) locBits.push(esc(s.weather));
+  if (locBits.length || s.objective || s.scene_summary) {
+    cards.push(`<div class="side-card">
+      ${locBits.length ? `<div class="side-row">${locBits.join(' · ')}</div>` : ''}
+      ${s.objective ? `<div class="side-row">🎯 ${esc(s.objective)}</div>` : ''}
+      ${s.scene_summary ? `<div class="side-row side-sub">${esc(s.scene_summary)}</div>` : ''}
+    </div>`);
+  }
+  if ((s.enemies || []).length)
+    cards.push(`<div class="side-card"><div class="side-h">⚔ 敌人</div>${s.enemies.map(e => `<div class="side-row ${e.status === 'dead' ? 'side-dead' : ''}">${e.status === 'dead' ? '☠ ' : '• '}${esc(e.name)}</div>`).join('')}</div>`);
+  if ((s.npcs || []).length)
+    cards.push(`<div class="side-card"><div class="side-h">👤 NPC</div>${s.npcs.map(e => `<div class="side-row ${e.status === 'dead' ? 'side-dead' : ''}">${e.status === 'dead' ? '☠ ' : '• '}${esc(e.name)}</div>`).join('')}</div>`);
+  if ((s.quests || []).length)
+    cards.push(`<div class="side-card"><div class="side-h">📜 任务</div>${s.quests.map(q => `<div class="side-row">• ${esc(q.title)}${q.objective ? `<div class="side-sub">${esc(q.objective)}</div>` : ''}</div>`).join('')}</div>`);
+  if ((s.inventory || []).length)
+    cards.push(`<div class="side-card"><div class="side-h">🎒 物品</div>${s.inventory.map(it => `<div class="side-row">• ${esc(it.name)}${it.qty > 1 ? ' ×' + it.qty : ''}${it.equipped ? ' ✓' : ''}</div>`).join('')}</div>`);
+  side.innerHTML = cards.join('') || '<div class="side-sub">（暂无状态）</div>';
 }
 function renderChat(snap) {
   const box = $('#chat-msgs'); const atBottom = box.scrollTop + box.clientHeight >= box.scrollHeight - 40;

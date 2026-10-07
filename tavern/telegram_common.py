@@ -12,10 +12,13 @@ log = logging.getLogger("tavern.telegram")
 
 async def stream_reply(message, agen: AsyncIterator[str], *, placeholder_text: str = "…",
                        edit_interval: float = 0.8,
-                       postprocess: Callable[[str], str] | None = None) -> str:
+                       postprocess: Callable[[str], str] | None = None,
+                       raw_sink: list | None = None) -> str:
     """Stream tokens into a placeholder message, then send the final text safely split.
 
-    Returns the final (post-processed) text that was sent.
+    Returns the final (post-processed) text that was sent. If `raw_sink` is given,
+    the raw (pre-postprocess) accumulated text is appended to it — callers that
+    need to parse machine tags the postprocess step strips (e.g. 〔HP-N〕) read it.
     """
     placeholder = await message.reply_text(placeholder_text)
     full = ""
@@ -44,6 +47,8 @@ async def stream_reply(message, agen: AsyncIterator[str], *, placeholder_text: s
             except Exception:  # noqa: BLE001
                 pass
             return ""
+    if raw_sink is not None:
+        raw_sink.append(full)
     final = (postprocess(full) if postprocess else full).strip() or "（无回复）"
     await TS.send_long_message(message, final, first_message=placeholder)
     return final

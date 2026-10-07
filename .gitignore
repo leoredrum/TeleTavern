@@ -57,6 +57,9 @@ data/
 .vscode/
 .idea/
 .DS_Store
+._*
+.AppleDouble
+.LSOverride
 *.swp
 *.swo
 

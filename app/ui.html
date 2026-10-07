@@ -368,7 +368,18 @@ async function renderOllama() {
     <b>按内存推荐</b><table style="font-size:13px;margin-top:6px;border-collapse:collapse">${Object.entries(it.tiers).map(([k,v])=>`<tr style="${k===MD.tier?'font-weight:600':''}"><td style="padding:3px 10px 3px 0;white-space:nowrap">${k===MD.tier?'👉 ':''}${esc(k)}</td><td style="padding:3px 0">${esc(v)}</td></tr>`).join('')}</table>
     <div class="muted" style="margin-top:8px">当前各 bot：${MD.bots.map(b=>`<code>${esc(b.name)}</code> → ${esc(b.model.split('/').pop().slice(0,28))}${b.mode==='rpg'?` / 抽取 ${esc(b.extract_model)}`:''}`).join('；')}</div>`;
   const pulls = Object.entries(o.pulls || {});
-  $('#pulls').innerHTML = pulls.map(([n, s]) => `<div><code>${esc(n)}</code> — <span class="pill ${s==='done'?'ok':(s.startsWith('failed')?'bad':'warn')}">${esc(s)}</span></div>`).join('');
+  $('#pulls').innerHTML = pulls.map(([n, s]) => {
+    const st = (s && typeof s === 'object') ? s
+      : { state: (''+s).startsWith('failed') ? 'failed' : (s === 'done' ? 'done' : 'pulling'), percent: 0, detail: '' + s };
+    const pct = Math.max(0, Math.min(100, st.percent || 0));
+    const cls = st.state === 'done' ? 'ok' : (st.state === 'failed' ? 'bad' : 'warn');
+    const label = st.state === 'done' ? '完成'
+      : (st.state === 'failed' ? '失败：' + esc(st.detail || '')
+      : esc(st.detail || '下载中') + ' ' + pct + '%');
+    const bar = st.state === 'failed' ? ''
+      : `<div style="height:8px;background:var(--line);border-radius:4px;margin-top:4px;overflow:hidden"><div style="height:100%;width:${st.state==='done'?100:pct}%;background:var(--accent);transition:width .3s"></div></div>`;
+    return `<div style="margin:8px 0"><div class="row" style="justify-content:space-between"><code>${esc(n)}</code><span class="pill ${cls}">${label}</span></div>${bar}</div>`;
+  }).join('');
   renderModels(); renderDeploys();
 }
 function renderModels() {
@@ -400,10 +411,15 @@ async function mdGo() {
 }
 function renderDeploys() {
   const jobs = (MD && MD.deploys) || [];
-  $('#models-deploys').innerHTML = jobs.length ? `<div class="card" style="padding:10px 14px"><b>部署进度</b>${jobs.slice().reverse().map(j => `<div style="font-size:13px;margin-top:4px">${{pulling:'⬇ 拉取 '+(j.progress||''),applying:'⚙ 写入配置…',done:'✅ 完成',failed:'❌ 失败'}[j.state]||j.state} — <code>${esc(j.name)}</code> → ${j.bots.map(esc).join('、')} ${j.error?`<span style="color:var(--bad)">${esc(j.error)}</span>`:''}</div>`).join('')}</div>` : '';
+  $('#models-deploys').innerHTML = jobs.length ? `<div class="card" style="padding:10px 14px"><b>部署进度</b>${jobs.slice().reverse().map(j => {
+    const head = {pulling:'⬇ 拉取 '+(j.progress||''),applying:'⚙ 写入配置…',done:'✅ 完成',failed:'❌ 失败'}[j.state]||j.state;
+    const pct = parseInt(('' + (j.progress || '')).replace('%',''), 10) || 0;
+    const bar = j.state === 'pulling' ? `<div style="height:6px;background:var(--line);border-radius:3px;margin-top:3px;overflow:hidden"><div style="height:100%;width:${pct}%;background:var(--accent);transition:width .3s"></div></div>` : '';
+    return `<div style="font-size:13px;margin-top:6px">${head} — <code>${esc(j.name)}</code> → ${j.bots.map(esc).join('、')} ${j.error?`<span style="color:var(--bad)">${esc(j.error)}</span>`:''}${bar}</div>`;
+  }).join('')}</div>` : '';
 }
-setInterval(() => { if ($('#models').classList.contains('active')) renderOllama(); }, 4000);
-async function pullName(n) { await api('pull_model', n); toast('开始拉取 ' + n); }
+setInterval(() => { if ($('#models').classList.contains('active')) renderOllama(); }, 2000);
+async function pullName(n) { const r = await api('pull_model', n); toast(r && r.ok ? '开始拉取 ' + n : ((r && r.error) || '拉取失败')); renderOllama(); }
 async function pull() { const n = $('#pull-name').value.trim(); if (!n) return; pullName(n); }
 
 async function refreshLog() { if (!$('#logs').classList.contains('active')) return; const el = $('#log'); const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 20; el.textContent = await api('logs', 300); if (atBottom) el.scrollTop = el.scrollHeight; }

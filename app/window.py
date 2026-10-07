@@ -16,6 +16,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -56,7 +57,7 @@ class Api:
         self.data_dir = ensure_data_dir(data_dir)
         self.engine = EngineThread(self.data_dir)
         self._thumbs: dict[str, str] = {}
-        self._pull: dict[str, str] = {}
+        self._pull: dict[str, dict] = {}
         self.window = None
         self.local = LocalChat(self.data_dir)
         self.store = StoreClient(self.data_dir)
@@ -287,37 +288,87 @@ class Api:
             needed = sorted({b.model for b in bots if b.enabled} | {b.extract_model for b in bots if b.enabled and b.mode == "rpg" and b.extract})
             names = {m["name"] for m in models}
             return {"ok": True, "url": url, "models": models, "missing": [n for n in needed if n not in names],
-                    "installed": bool(shutil.which("ollama")), "pulls": dict(self._pull)}
+                    "installed": bool(self._ollama_bin()), "pulls": dict(self._pull)}
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "url": url, "models": [], "missing": [], "error": str(exc)[:120],
-                    "installed": bool(shutil.which("ollama")), "pulls": dict(self._pull)}
+                    "installed": bool(self._ollama_bin()), "pulls": dict(self._pull)}
+
+    @staticmethod
+    def _ollama_bin() -> str | None:
+        """Locate the ollama executable. shutil.which first, then common install paths —
+        a GUI .app launched from Finder/LaunchServices does not inherit the shell PATH,
+        so /opt/homebrew/bin (Homebrew) is usually missing."""
+        p = shutil.which("ollama")
+        if p:
+            return p
+        for cand in ("/opt/homebrew/bin/ollama", "/usr/local/bin/ollama", "/opt/local/bin/ollama"):
+            if os.path.exists(cand):
+                return cand
+        return None
+
+    def _ollama_url(self) -> str:
+        bots = load_bots(self.data_dir)
+        return (bots[0].ollama_url if bots else "http://127.0.0.1:11434").rstrip("/")
+
+    def _do_pull(self, name: str, on_update) -> tuple[bool, str]:
+        """Pull a model via the Ollama HTTP API (/api/pull, streaming). Independent of the
+        ollama CLI / PATH. Calls on_update(percent:int, detail:str) as bytes arrive.
+        Returns (ok, error)."""
+        url = self._ollama_url() + "/api/pull"
+        body = json.dumps({"model": name, "stream": True}).encode()
+        req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+        try:
+            with urllib.request.urlopen(req, timeout=None) as resp:
+                for raw in resp:
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        ev = json.loads(raw)
+                    except Exception:  # noqa: BLE001
+                        continue
+                    if ev.get("error"):
+                        return False, str(ev["error"])[:120]
+                    total = ev.get("total") or 0
+                    completed = ev.get("completed") or 0
+                    pct = int(completed * 100 / total) if total else 0
+                    status = ev.get("status") or ""
+                    on_update(pct, status)
+                    if status == "success":
+                        return True, ""
+            return True, ""
+        except urllib.error.HTTPError as exc:  # noqa: BLE001
+            detail = ""
+            try:
+                detail = exc.read().decode()[:120]
+            except Exception:  # noqa: BLE001
+                pass
+            return False, f"HTTP {exc.code} {detail}".strip()
+        except Exception as exc:  # noqa: BLE001
+            return False, str(exc)[:120]
 
     def ollama_serve(self) -> dict:
-        if not shutil.which("ollama"):
-            return {"ok": False, "error": "未安装 Ollama"}
-        subprocess.Popen(["ollama", "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        binp = self._ollama_bin()
+        if not binp:
+            return {"ok": False, "error": "未找到 ollama 可执行文件"}
+        subprocess.Popen([binp, "serve"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         return {"ok": True}
 
     def pull_model(self, name: str) -> dict:
         name = (name or "").strip()
-        if not name or not shutil.which("ollama"):
-            return {"ok": False, "error": "模型名为空或未安装 Ollama"}
-        if self._pull.get(name, "").startswith("pulling"):
+        if not name:
+            return {"ok": False, "error": "模型名为空"}
+        cur = self._pull.get(name)
+        if isinstance(cur, dict) and cur.get("state") == "pulling":
             return {"ok": True}
-        self._pull[name] = "pulling 0%"
+        self._pull[name] = {"state": "pulling", "percent": 0, "detail": "准备中…"}
 
         def work():
-            try:
-                proc = subprocess.Popen(["ollama", "pull", name], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                        text=True, bufsize=1)
-                for line in proc.stdout or []:
-                    m = re.search(r"(\d{1,3})%", line)
-                    if m:
-                        self._pull[name] = f"pulling {m.group(1)}%"
-                proc.wait()
-                self._pull[name] = "done" if proc.returncode == 0 else "failed"
-            except Exception as exc:  # noqa: BLE001
-                self._pull[name] = f"failed: {str(exc)[:80]}"
+            def upd(pct, detail):
+                self._pull[name] = {"state": "pulling", "percent": pct, "detail": detail or f"{pct}%"}
+            ok, err = self._do_pull(name, upd)
+            self._pull[name] = ({"state": "done", "percent": 100, "detail": "完成"} if ok
+                                else {"state": "failed", "percent": 0, "detail": err or "拉取失败"})
 
         threading.Thread(target=work, daemon=True).start()
         return {"ok": True}
@@ -557,8 +608,6 @@ class Api:
         name = (name or "").strip()
         if not name:
             return {"ok": False, "error": "模型名为空"}
-        if not shutil.which("ollama"):
-            return {"ok": False, "error": "未安装 Ollama"}
         field = "extract_model" if role == "extract" else "model"
         job = {"name": name, "role": role, "bots": list(bots or []), "state": "pulling", "progress": "", "error": ""}
         self._model_jobs[name] = job
@@ -568,19 +617,16 @@ class Api:
                 o = self.ollama()
                 installed = {m["name"] for m in o.get("models", [])}
                 if name not in installed:
-                    proc = subprocess.Popen(["ollama", "pull", name], stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                                            text=True, bufsize=1)
-                    for line in proc.stdout or []:
-                        m = re.search(r"(\d{1,3})%", line)
-                        if m:
-                            job["progress"] = f"{m.group(1)}%"
-                            self._pull[name] = f"pulling {m.group(1)}%"
-                    proc.wait()
-                    if proc.returncode != 0:
-                        job.update(state="failed", error="ollama pull 失败（模型名是否正确？）")
-                        self._pull[name] = "failed"
+                    def upd(pct, detail):
+                        job["progress"] = f"{pct}%"
+                        self._pull[name] = {"state": "pulling", "percent": pct, "detail": detail or f"{pct}%"}
+                    ok, err = self._do_pull(name, upd)
+                    if not ok:
+                        job.update(state="failed", error=err or "拉取失败（模型名是否正确？）")
+                        self._pull[name] = {"state": "failed", "percent": 0, "detail": err or "拉取失败"}
                         return
-                    self._pull[name] = "done"
+                    self._pull[name] = {"state": "done", "percent": 100, "detail": "完成"}
+                    job["progress"] = "100%"
                 job["state"] = "applying"
                 changed = []
                 for b in job["bots"]:
@@ -603,10 +649,18 @@ class Api:
         return {"ok": True}
 
     def model_remove(self, name: str) -> dict:
-        if not shutil.which("ollama"):
-            return {"ok": False, "error": "未安装 Ollama"}
-        proc = subprocess.run(["ollama", "rm", name], capture_output=True, text=True)
-        return {"ok": proc.returncode == 0, "error": proc.stderr[-160:] if proc.returncode else ""}
+        name = (name or "").strip()
+        if not name:
+            return {"ok": False, "error": "模型名为空"}
+        url = self._ollama_url() + "/api/delete"
+        body = json.dumps({"model": name}).encode()
+        req = urllib.request.Request(url, data=body, method="DELETE",
+                                     headers={"Content-Type": "application/json"})
+        try:
+            urllib.request.urlopen(req, timeout=10).read()
+            return {"ok": True}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:160]}
 
     # ---- logs / misc --------------------------------------------------------------------------------------
     def logs(self, lines: int = 200) -> str:

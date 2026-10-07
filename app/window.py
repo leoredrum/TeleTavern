@@ -398,8 +398,11 @@ class Api:
         return self.local.convo(name).snapshot()
 
     def local_clear(self, name: str) -> dict:
-        self.local.clear_view(name)
-        return {"ok": True}
+        try:
+            n = self.local.clear(name)
+            return {"ok": True, "cleared": n}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:200]}
 
     def open_file(self, path: str) -> dict:
         if path and Path(path).exists():

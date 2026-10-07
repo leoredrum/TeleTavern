@@ -552,15 +552,24 @@ async function chatOpen() {
   if (info.mode === 'dialogue') {
     const cs = $('#chat-char'); cs.style.display = '';
     cs.innerHTML = '<option value="">选择角色…</option>' + info.characters.map(c => `<option value="${esc(c.file)}" ${c.file===info.current?'selected':''}>${esc(c.name)}</option>`).join('');
-    $('#chat-tools').innerHTML = `<button class="btn" onclick="chatCmd('reset')">新对话</button><button class="btn" onclick="chatCmd('where')">状态</button><button class="btn" onclick="chatCmd('debug')">prompt</button>`;
+    $('#chat-tools').innerHTML = `<button class="btn" onclick="chatCmd('reset')">新对话</button><button class="btn" onclick="chatCmd('where')">状态</button><button class="btn" onclick="chatCmd('debug')">prompt</button><button class="btn" onclick="chatClear()">🧹 清空</button>`;
   } else {
-    $('#chat-tools').innerHTML = `<button class="btn" onclick="chatCmd('newgame')">新游戏</button><button class="btn" onclick="chatCmd('continue')">继续</button><button class="btn" onclick="chatCmd('status')">世界状态</button><button class="btn" onclick="chatCmd('export_script')">导出剧本</button><button class="btn" onclick="chatCmd('endgame')">结束本局</button>`;
+    $('#chat-tools').innerHTML = `<button class="btn" onclick="chatCmd('newgame')">新游戏</button><button class="btn" onclick="chatCmd('continue')">继续</button><button class="btn" onclick="chatCmd('status')">世界状态</button><button class="btn" onclick="chatCmd('export_script')">导出剧本</button><button class="btn" onclick="chatCmd('endgame')">结束本局</button><button class="btn" onclick="chatClear()">🧹 清空</button>`;
     $('#chat-info').textContent = info.session ? `当前局：${info.session.title} (${info.session.id})` : '尚无游戏局，点「新游戏」';
   }
   renderChat(info);
 }
 async function chatSelectChar() { const f = $('#chat-char').value; if (!f || !CHAT_BOT) return; await api('local_select', CHAT_BOT, f); CHAT_VER = -1; }
 async function chatCmd(cmd) { if (!CHAT_BOT) return; await api('local_cmd', CHAT_BOT, cmd, ''); }
+async function chatClear() {
+  if (!CHAT_BOT) return;
+  if (!confirm('确定清空当前对话记录？这会删除本地聊天里该对话的全部消息，不可撤销。\n（RPG 模式只清聊天记录，世界状态与存档不受影响。）')) return;
+  const r = await api('local_clear', CHAT_BOT);
+  if (!r || !r.ok) return toast((r && r.error) || '清空失败');
+  CHAT_VER = -1;
+  toast('已清空 ' + (r.cleared || 0) + ' 条消息');
+  chatOpen();
+}
 async function chatSend() {
   const el = $('#chat-input'); const t = el.value.trim(); if (!t || !CHAT_BOT) return;
   el.value = ''; await api('local_send', CHAT_BOT, t);

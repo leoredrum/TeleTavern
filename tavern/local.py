@@ -202,3 +202,20 @@ class LocalChat:
 
     def clear_view(self, name: str) -> None:
         self.convos.pop(name, None)
+
+    def clear(self, name: str) -> int:
+        """Delete the persisted transcript of the current local-chat thread and reset the
+        on-screen view. Mirrors history()'s thread resolution so it works in both modes.
+        Returns the number of messages removed."""
+        bot = self.bot(name)
+        n = 0
+        if isinstance(bot, DialogueBot):
+            rt = bot.bound(LOCAL_CHAT_ID)
+            if rt:
+                n = bot.store.reset(bot.thread(LOCAL_CHAT_ID, rt))
+        else:
+            s = bot.sessions.active(LOCAL_CHAT_ID)
+            if s:
+                n = bot.store.reset(bot.thread(LOCAL_CHAT_ID, s["session_id"]))
+        self.convos.pop(name, None)
+        return n

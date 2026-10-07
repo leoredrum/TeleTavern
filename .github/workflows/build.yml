@@ -1,0 +1,62 @@
+name: Build
+
+# 打一个版本 tag（如 v3.0.1）即同时编译 macOS 与 Windows 两个版本，
+# 并把产物发布到对应的 GitHub Release。也可在 Actions 页手动触发。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: macOS
+          - os: windows-latest
+            platform: Windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-v3.txt
+
+      - name: Build (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          pyinstaller app/TelegramTavern.spec --noconfirm --log-level WARN
+          codesign --force --deep --sign - dist/TelegramTavern.app || true
+          ditto -c -k --sequesterRsrc --keepParent dist/TelegramTavern.app TelegramTavern-macOS.zip
+
+      - name: Build (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          pyinstaller app/TelegramTavern.spec --noconfirm --log-level WARN
+          Compress-Archive -Path dist/TelegramTavern -DestinationPath TelegramTavern-Windows.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: TelegramTavern-${{ matrix.platform }}
+          path: TelegramTavern-${{ matrix.platform }}.zip
+          if-no-files-found: error
+
+      - name: Publish to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: TelegramTavern-${{ matrix.platform }}.zip
+          fail_on_unmatched_files: true

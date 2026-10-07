@@ -1,14 +1,22 @@
 # -*- mode: python ; coding: utf-8 -*-
-# PyInstaller spec — build with:  ./venv/bin/pyinstaller app/TelegramTavern.spec --noconfirm
+# PyInstaller spec — cross-platform.
+#   macOS:   ./venv/bin/pyinstaller app/TelegramTavern.spec --noconfirm  → dist/TelegramTavern.app
+#   Windows: pyinstaller app/TelegramTavern.spec --noconfirm             → dist/TelegramTavern/TelegramTavern.exe
 import os
+import sys
 from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 ROOT = os.path.abspath(os.path.join(SPECPATH, ".."))
+IS_MAC = sys.platform == "darwin"
 
 wv_datas, wv_bins, wv_hidden = collect_all("webview")
 hidden = (wv_hidden + collect_submodules("tavern") + collect_submodules("telegram") + collect_submodules("aiohttp")
-          + ["yaml", "dotenv", "PIL", "PIL.Image", "PIL.PngImagePlugin", "rumps", "character_card",
+          + ["yaml", "dotenv", "PIL", "PIL.Image", "PIL.PngImagePlugin", "character_card",
              "pipeline", "prompt_item", "director", "story_engine", "ollama_client", "db", "config"])
+if IS_MAC:
+    hidden += ["rumps"]  # menubar.py shell, macOS only
+
+ICON = os.path.join(ROOT, "app", "icon.icns" if IS_MAC else "icon.ico")
 
 a = Analysis(
     [os.path.join(ROOT, "app", "window.py")],
@@ -30,21 +38,22 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
-    icon=os.path.join(ROOT, "app", "icon.icns"),
+    icon=ICON,
 )
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name="TelegramTavern")
-app = BUNDLE(
-    coll,
-    name="TelegramTavern.app",
-    icon=os.path.join(ROOT, "app", "icon.icns"),
-    bundle_identifier="com.leoredrum.telegramtavern",
-    info_plist={
-        "LSUIElement": False,                # normal window app with Dock icon
-        "CFBundleShortVersionString": "3.0.0",
-        "CFBundleName": "TelegramTavern",
-        "CFBundleDisplayName": "Telegram Tavern",
-        "CFBundleIconFile": "icon.icns",
-        "NSHighResolutionCapable": True,
-        "LSMinimumSystemVersion": "13.0",
-    },
-)
+if IS_MAC:
+    app = BUNDLE(
+        coll,
+        name="TelegramTavern.app",
+        icon=ICON,
+        bundle_identifier="com.leoredrum.telegramtavern",
+        info_plist={
+            "LSUIElement": False,                # normal window app with Dock icon
+            "CFBundleShortVersionString": "3.0.1",
+            "CFBundleName": "TelegramTavern",
+            "CFBundleDisplayName": "Telegram Tavern",
+            "CFBundleIconFile": "icon.icns",
+            "NSHighResolutionCapable": True,
+            "LSMinimumSystemVersion": "13.0",
+        },
+    )

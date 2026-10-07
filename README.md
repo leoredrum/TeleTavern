@@ -14,6 +14,14 @@
 - **模型页**：说明最少需要哪些模型、按内存分档推荐（全部经核实可拉取），每个模型「一键部署」= 拉取 + 写入所选 bot 配置 + 重启。
 - **多 bot 单进程**：`bots/*.yaml` 一个文件一个 bot，`kind: telegram | local`。
 
+## 下载
+
+预编译的 **macOS** 与 **Windows** 版本见 [Releases](https://github.com/leoredrum/TeleTavern/releases)（由 GitHub Actions 自动编译）。
+- macOS：解压后把 `TelegramTavern.app` 拖进「应用程序」，首次右键 → 打开（本地签名，未经 Apple 公证）。
+- Windows：解压 `TelegramTavern-Windows.zip`，运行文件夹内的 `TelegramTavern.exe`（需要 [WebView2 运行时](https://developer.microsoft.com/microsoft-edge/webview2/)，Windows 10/11 一般已内置）。
+
+数据目录：macOS 在 `~/Library/Application Support/TelegramTavern/`；Windows 在 `%APPDATA%\TelegramTavern\`。
+
 ## 安装使用（App）
 
 1. 安装 [Ollama](https://ollama.com/download)，拉取模型（默认 `fredrezones55/Qwen3.6-35B-A3B-Uncensored-HauhauCS-Aggressive:latest`，RPG 抽取用 `qwen3:14b`）。App 菜单里也能检查和拉取。

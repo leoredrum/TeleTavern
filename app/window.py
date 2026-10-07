@@ -52,6 +52,16 @@ def _ui_path() -> str:
     return str(p)
 
 
+def _reveal(target: str) -> None:
+    """Open a file / folder / URL with the OS default handler, cross-platform."""
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", target])
+    elif sys.platform == "win32":
+        os.startfile(target)  # type: ignore[attr-defined]  # noqa: S606
+    else:
+        subprocess.Popen(["xdg-open", target])
+
+
 class Api:
     def __init__(self, data_dir: Path):
         self.data_dir = ensure_data_dir(data_dir)
@@ -301,7 +311,11 @@ class Api:
         p = shutil.which("ollama")
         if p:
             return p
-        for cand in ("/opt/homebrew/bin/ollama", "/usr/local/bin/ollama", "/opt/local/bin/ollama"):
+        cands = ["/opt/homebrew/bin/ollama", "/usr/local/bin/ollama", "/opt/local/bin/ollama"]
+        if sys.platform == "win32":
+            cands += [os.path.expandvars(r"%LOCALAPPDATA%\Programs\Ollama\ollama.exe"),
+                      os.path.expandvars(r"%ProgramFiles%\Ollama\ollama.exe")]
+        for cand in cands:
             if os.path.exists(cand):
                 return cand
         return None
@@ -406,7 +420,7 @@ class Api:
 
     def open_file(self, path: str) -> dict:
         if path and Path(path).exists():
-            subprocess.Popen(["open", path])
+            _reveal(path)
         return {"ok": True}
 
     # ---- character-card store (aicharactercards.com API) ----------------------------------------
@@ -678,12 +692,12 @@ class Api:
 
     def open_path(self, kind: str) -> dict:
         target = self.data_dir if kind == "root" else self.data_dir / kind
-        subprocess.Popen(["open", str(target)])
+        _reveal(str(target))
         return {"ok": True}
 
     def open_url(self, url: str) -> dict:
         if url.startswith(("http://", "https://")):
-            subprocess.Popen(["open", url])
+            _reveal(url)
         return {"ok": True}
 
 

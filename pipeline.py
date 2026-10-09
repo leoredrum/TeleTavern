@@ -207,8 +207,8 @@ class PromptPipeline:
         if persona_item:
             items.append(persona_item)
 
-        # ── 8: Example Dialogues ────────────────────────────────────────────
-        items.extend(self._build_examples(ctx))
+        # ── 8: Example Dialogues (only while the chat is still young) ───────
+        items.extend(self._build_examples(ctx, history_len=len(history)))
         items.extend(self._build_lorebook(history, user_message))   # V3 World Info
 
         # ── 9: Summary (Phase 3 — stubbed) ─────────────────────────────────
@@ -497,10 +497,16 @@ class PromptPipeline:
             source="persona",
         )
 
-    def _build_examples(self, ctx: PipelineContext) -> list[PromptItem]:
-        """Example dialogues from the character card."""
+    # mes_example is injected verbatim every turn and sits outside the token
+    # budget; once the conversation has its own voice it mostly serves as a
+    # template the model keeps re-using (same openings, same stock phrases).
+    # SillyTavern-style behaviour: examples matter for the first few turns only.
+    EXAMPLES_MAX_HISTORY = 6
+
+    def _build_examples(self, ctx: PipelineContext, history_len: int = 0) -> list[PromptItem]:
+        """Example dialogues from the character card (first few turns only)."""
         raw = self.card.mes_example.strip()
-        if not raw:
+        if not raw or history_len > self.EXAMPLES_MAX_HISTORY:
             return []
         subbed = _sub_placeholders(raw, ctx.char_label, ctx.user_label)
         return [

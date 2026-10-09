@@ -19,6 +19,7 @@ class EngineThread:
         self.stop_event: asyncio.Event | None = None
         self.thread: threading.Thread | None = None
         self.last_error: str = ""
+        self.only: set[str] | None = None   # names this run was limited to (None = all enabled)
 
     @property
     def alive(self) -> bool:
@@ -28,11 +29,17 @@ class EngineThread:
     def status(self) -> dict[str, str]:
         return dict(self.engine.status) if self.engine else {}
 
-    def start(self) -> None:
+    @property
+    def running_names(self) -> set[str]:
+        """Bots actually polling right now."""
+        return set(self.engine.running.keys()) if (self.alive and self.engine) else set()
+
+    def start(self, only: set[str] | None = None) -> None:
         if self.alive:
             return
         self.last_error = ""
-        self.engine = Engine(self.data_dir)
+        self.only = set(only) if only else None
+        self.engine = Engine(self.data_dir, only=self.only)
 
         def runner():
             self.loop = asyncio.new_event_loop()
@@ -53,6 +60,10 @@ class EngineThread:
             self.loop.call_soon_threadsafe(self.stop_event.set)
             self.thread.join(timeout=timeout)
 
-    def restart(self) -> None:
+    def restart(self, only: set[str] | None = None, *, keep: bool = True) -> None:
+        """Restart. `keep=True` (default) re-applies the previous `only` filter
+        unless a new one is given, so a config-reload restart doesn't suddenly
+        launch every enabled bot."""
+        prev = self.only
         self.stop()
-        self.start()
+        self.start(only if only is not None else (prev if keep else None))

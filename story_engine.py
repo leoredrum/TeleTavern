@@ -42,7 +42,9 @@ STALL_MOTIFS = [
 
 # Scene beats — concrete narrative progress.
 BEAT_PATTERNS: dict[str, list[str]] = {
-    "ACTION":           ["（", "走向", "拿起", "放下", "推", "拉", "打开", "关", "转身", "抬", "握", "递"],
+    # NOTE: "（" used to be here — any parenthetical stage direction counted as
+    # progress, which let "（她脸红）" pass as a beat. Removed.
+    "ACTION":           ["走向", "拿起", "放下", "推开", "拉开", "打开", "关上", "转身", "抬起", "握住", "递给"],
     "DECISION":         ["决定", "我答应", "我拒绝", "我同意", "我愿意", "我选择", "我要"],
     "LOCATION_CHANGE":  [
         "走出", "走进", "去到", "到达", "离开", "踏入", "进入", "回到",
@@ -56,7 +58,10 @@ BEAT_PATTERNS: dict[str, list[str]] = {
         "楼顶", "天台", "河边", "湖边", "海边", "山上", "山下",
     ],
     "NEW_INFORMATION":  ["原来", "其实", "真相", "秘密", "告诉你", "其实我", "我从来没", "实际上"],
-    "CHOICE":           ["你想", "要不要", "还是", "还是说", "你想让我", "我该", "我们该", "?"],
+    # CHOICE is tracked for beat history but does NOT count as progress in
+    # detect_stall(): "要不要…？" every turn is exactly the back-and-forth the user
+    # complains about. ("?" was removed — a bare question mark is not a beat.)
+    "CHOICE":           ["你想", "要不要", "还是说", "你想让我", "我该", "我们该"],
     "CONFLICT":         ["不行", "不能", "拒绝", "反对", "我不要", "你不能", "别这样", "不可以", "我不想"],
     "CONSEQUENCE":      ["因为你", "所以你", "结果", "于是", "导致", "造成"],
     "EMOTIONAL_SHIFT":  ["突然想", "我对你", "我们的关系", "我对你感", "我觉得你", "开始重新", "态度", "不再"],
@@ -118,7 +123,28 @@ def _find_beats(text: str) -> list[str]:
     return beats
 
 
-def detect_stall(reply: str) -> tuple[bool, list[str], list[str]]:
+def _ngrams(text: str, n: int = 3) -> set[str]:
+    t = "".join(ch for ch in text if not ch.isspace())
+    return {t[i:i + n] for i in range(max(0, len(t) - n + 1))}
+
+
+def reply_similarity(a: str, b: str) -> float:
+    """Character 3-gram Jaccard similarity — language-agnostic, cheap, and good at
+    catching "same scene re-described with slightly different words"."""
+    ga, gb = _ngrams(a), _ngrams(b)
+    if not ga or not gb:
+        return 0.0
+    return len(ga & gb) / len(ga | gb)
+
+
+SIMILARITY_STALL = 0.30     # Jaccard vs any recent reply above this = looping (paraphrased same-scene ≈ 0.3)
+OPENING_MATCH_CHARS = 12    # identical first N chars as a recent reply = templated opening
+
+
+def detect_stall(reply: str, prev_replies: list[str] | None = None) -> tuple[bool, list[str], list[str]]:
+    # `prev_replies`: recent replies to compare against (looping / templated
+    # openings). CHOICE beats don't count as progress — "要不要…？" every turn is
+    # the back-and-forth being fixed. Old version only fired on 暧昧 motif words.
     """Return (no_progress, motifs_found, beats_found).
 
     no_progress is True when:
@@ -127,15 +153,25 @@ def detect_stall(reply: str) -> tuple[bool, list[str], list[str]]:
     """
     motifs = _find_motifs(reply)
     beats = _find_beats(reply)
+    real_beats = [b for b in beats if b != "CHOICE"]
+    head = "".join(ch for ch in reply if not ch.isspace())[:OPENING_MATCH_CHARS]
+    for prev in (prev_replies or []):
+        if not prev:
+            continue
+        if reply_similarity(reply, prev) > SIMILARITY_STALL:
+            return True, motifs, beats
+        prev_head = "".join(ch for ch in prev if not ch.isspace())[:OPENING_MATCH_CHARS]
+        if len(head) >= OPENING_MATCH_CHARS and head == prev_head:
+            return True, motifs, beats
     # Count Chinese characters (rough length proxy)
     cjk = sum(1 for c in reply if "\u4e00" <= c <= "\u9fff")
     if not motifs:
         return False, motifs, beats
-    if not beats:
+    if not real_beats:
         return True, motifs, beats
     # Motifs present but beats also present — borderline; only fail if reply is very
     # short AND motif-heavy (suggests motif is the *whole* reply).
-    if cjk < 60 and len(motifs) >= 3 and len(beats) <= 1:
+    if cjk < 60 and len(motifs) >= 3 and len(real_beats) <= 1:
         return True, motifs, beats
     return False, motifs, beats
 
@@ -233,11 +269,15 @@ def make_progress_hint(state: StoryState, user_msg: str) -> str:
             )
 
     if not parts:
-        # No stall, no advance signal — return a gentle always-on beat reminder
-        # so the model never goes more than one turn without a beat.
+        # No stall, no advance signal — always-on progress rules (the part that
+        # mature RP front-ends put in every system prompt).
         return (
-            "[STORY PROGRESS — 提醒]\n"
-            "本次回复请至少包含一个具体的 Scene Beat（动作 / 决定 / 新信息 / 选择 / 场景切换 / 小冲突 / 后果 / 情绪转折）。\n"
+            "[STORY PROGRESS — 每轮必守]\n"
+            "1. 本次回复必须让事情**落地**：给出一个确定的结果（一个回答、一个决定、一件真正发生的事），"
+            "不要只是试探、暗示或铺垫。\n"
+            "2. 不要以反问或「你想怎么做？」之类把球踢回给用户来结尾；角色自己要有主张和行动。\n"
+            "3. 不要重复上一轮的场景描写、开头方式和句式；不要复述或总结已经发生过的内容。\n"
+            "4. 至少包含一个具体的 Scene Beat（动作 / 决定 / 新信息 / 场景切换 / 冲突 / 后果 / 情绪转折）。\n"
             "60–180 字中文，简洁有进展感。"
         )
 
@@ -264,15 +304,17 @@ def update_state_and_hint(
 
     motifs = _find_motifs(reply)
     beats = _find_beats(reply)
-    no_progress, _, _ = detect_stall(reply)
+    # compare against the previous replies BEFORE appending this one
+    no_progress, _, _ = detect_stall(reply, state.last_replies_tail)
 
     if no_progress:
         state.stalled_rounds += 1
     else:
         state.stalled_rounds = 0
 
-    # Track repeated motifs — rolling window of the last 3 replies.
-    state.last_replies_tail.append(reply[-300:] if len(reply) > 300 else reply)
+    # Rolling window of the last 3 replies (first 800 chars — enough for the
+    # similarity / opening checks and the motif decay below).
+    state.last_replies_tail.append(reply[:800])
     if len(state.last_replies_tail) > 3:
         state.last_replies_tail.pop(0)
 

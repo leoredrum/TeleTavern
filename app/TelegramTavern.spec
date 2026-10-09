@@ -49,7 +49,7 @@ if IS_MAC:
         bundle_identifier="com.leoredrum.telegramtavern",
         info_plist={
             "LSUIElement": False,                # normal window app with Dock icon
-            "CFBundleShortVersionString": "3.0.2",
+            "CFBundleShortVersionString": "3.0.3",
             "CFBundleName": "TelegramTavern",
             "CFBundleDisplayName": "Telegram Tavern",
             "CFBundleIconFile": "icon.icns",

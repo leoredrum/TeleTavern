@@ -196,9 +196,9 @@ def _build_narrative_rules(cfg: DirectorConfig) -> str:
         lo = cfg.reply_length_min
         hi = cfg.reply_length_max
         rules.append(
-            f"6. *回复长度*：**{lo}–{hi}个中文字符**（不含角色名和引号）。"
+            f"7. *回复长度*：**{lo}–{hi}个中文字符**（不含角色名和引号）。"
             f"短场景{lo}–{lo + 40}字，长场景最多{hi}字。"
-            "**超过{hi}字视为冗长，立刻缩短**。"
+            f"**超过{hi}字视为冗长，立刻缩短**。"
         )
     if rules:
         return "## 叙事节奏\n" + "\n".join(rules) + "\n\n"

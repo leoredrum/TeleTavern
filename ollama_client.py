@@ -40,7 +40,12 @@ class OllamaClient:
         max_tokens: int = 1024,
         temperature: float = 0.95,
         top_p: float = 0.92,
-        repeat_penalty: float = 1.18,
+        repeat_penalty: float = 1.1,
+        repeat_last_n: int = 512,
+        presence_penalty: float = 0.4,
+        frequency_penalty: float = 0.25,
+        top_k: int = 40,
+        min_p: float = 0.05,
     ) -> None:
         # base_url is like http://localhost:11434
         self.base_url = base_url.rstrip("/")
@@ -48,7 +53,17 @@ class OllamaClient:
         self.max_tokens = max_tokens
         self.temperature = temperature
         self.top_p = top_p
+        # Anti-loop sampling (SillyTavern-style defaults). The old setup had
+        # repeat_penalty=1.18 but left repeat_last_n at Ollama's default 64 tokens
+        # (< 1.5 Chinese sentences), so cross-turn repetition was never penalised.
+        # A wide window + presence penalty catches it; repeat_penalty is lowered
+        # so the wider window doesn't start mangling ordinary vocabulary.
         self.repeat_penalty = repeat_penalty
+        self.repeat_last_n = repeat_last_n
+        self.presence_penalty = presence_penalty
+        self.frequency_penalty = frequency_penalty
+        self.top_k = top_k
+        self.min_p = min_p
 
     async def stream_chat(
         self,
@@ -71,9 +86,15 @@ class OllamaClient:
                 # Long context — qwen3:32b supports 40k natively. Set high enough
                 # so character card + conversation history fits.
                 "num_ctx": 32768,
+                "num_predict": self.max_tokens,      # was never sent → unbounded replies
                 "temperature": self.temperature,
                 "top_p": self.top_p,
+                "top_k": self.top_k,
+                "min_p": self.min_p,
                 "repeat_penalty": self.repeat_penalty,
+                "repeat_last_n": self.repeat_last_n,
+                "presence_penalty": self.presence_penalty,
+                "frequency_penalty": self.frequency_penalty,
                 "think": False,
             },
         }

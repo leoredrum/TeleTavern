@@ -168,6 +168,25 @@ class StoreClient:
     def detail(self, card_id: int) -> dict:
         return self._norm(self._get(f"/cards/{int(card_id)}"))
 
+    def detail_full(self, card_id: int) -> dict:
+        """Everything the in-app preview needs: the normalised summary plus the
+        FULL description (``_norm`` truncates it to 220 chars) and tag objects."""
+        raw = self._get(f"/cards/{int(card_id)}")
+        c = raw.get("data") if isinstance(raw.get("data"), dict) else raw
+        d = self._norm(c)
+        desc = c.get("description") or c.get("excerptEn") or c.get("excerpt") or ""
+        if (c.get("descriptionFormat") or "").lower() == "html":
+            desc = re.sub(r"<br\s*/?>|</p>", "\n", desc, flags=re.I)
+            desc = re.sub(r"<[^>]+>", "", desc)
+        d["description"] = desc.strip()
+        d["excerpt_full"] = (c.get("excerptEn") or c.get("excerpt") or "").strip()
+        d["banner"] = image_url(c.get("banner"))
+        d["updated"] = (c.get("updatedAt") or "")[:10]
+        d["comments"] = c.get("commentCount") or 0
+        d["has_lorebook"] = bool(c.get("attachedLorebook") or c.get("attachedLorebookId"))
+        d["adventure"] = bool(c.get("adventureMode"))
+        return d
+
     # ---- download ------------------------------------------------------------------------------
     def download(self, card_id: int, dest_dir: Path, *, title: str = "", fmt: str = "st",
                  retries: int = 4) -> Path:

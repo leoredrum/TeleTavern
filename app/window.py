@@ -86,9 +86,29 @@ class Api:
                          "characters": b.character_files, "worlds": b.worlds, "problems": problems,
                          "status": status.get(b.name, "stopped" if not self.engine.alive else "starting")})
         return {"running": self.engine.alive, "data_dir": str(self.data_dir), "bots": bots,
-                "last_error": self.engine.last_error, "ollama": self.ollama()}
+                "last_error": self.engine.last_error, "ollama": self.ollama(),
+                "autostart": bool(self.settings().get("autostart", False)),
+                "only": sorted(self.engine.only) if self.engine.only else None}
 
+    # ---- app settings (settings.json in the data dir) ------------------------------------
+    def _settings_path(self) -> Path:
+        return self.data_dir / "settings.json"
+
+    def settings(self) -> dict:
+        try:
+            return json.loads(self._settings_path().read_text(encoding="utf-8")) or {}
+        except Exception:  # noqa: BLE001
+            return {}
+
+    def set_setting(self, key: str, value) -> dict:
+        s = self.settings()
+        s[key] = value
+        self._settings_path().write_text(json.dumps(s, ensure_ascii=False, indent=2), encoding="utf-8")
+        return {"ok": True, "settings": s}
+
+    # ---- engine control --------------------------------------------------------------------
     def start(self) -> dict:
+        """Start ALL enabled bots."""
         self.engine.start()
         return {"ok": True}
 
@@ -98,6 +118,31 @@ class Api:
 
     def restart(self) -> dict:
         self.engine.restart()
+        return {"ok": True}
+
+    def start_bot(self, name: str) -> dict:
+        """Run just this bot (plus whatever is already running). Leaves the
+        bot's `enabled` flag alone — this is a run-time choice, not config."""
+        name = (name or "").strip()
+        if not name:
+            return {"ok": False, "error": "bot 名为空"}
+        if self.engine.alive:
+            cur = self.engine.only if self.engine.only is not None else self.engine.running_names
+            self.engine.restart(only=set(cur) | {name})
+        else:
+            self.engine.start(only={name})
+        return {"ok": True}
+
+    def stop_bot(self, name: str) -> dict:
+        name = (name or "").strip()
+        if not self.engine.alive:
+            return {"ok": True}
+        cur = set(self.engine.only if self.engine.only is not None else self.engine.running_names)
+        cur.discard(name)
+        if cur:
+            self.engine.restart(only=cur)
+        else:
+            self.engine.stop()
         return {"ok": True}
 
     # ---- bots ------------------------------------------------------------------------------
@@ -511,6 +556,16 @@ class Api:
         except Exception as exc:  # noqa: BLE001
             return {"ok": False, "error": str(exc)[:200], "items": [], "total": 0}
 
+    def store_detail(self, card_id: int) -> dict:
+        """Full card detail for the in-app preview modal (no browser hop)."""
+        try:
+            d = self.store.detail_full(int(card_id))
+            have = {f.name for f in (self.data_dir / "characters").glob("*.png")}
+            d["owned"] = any(f"[aicc-{d['id']}]" in n for n in have)
+            return {"ok": True, **d}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": str(exc)[:200]}
+
     def store_download(self, items: list) -> dict:
         """Queue downloads (sequential, rate-limit aware). items: [{id, title}]"""
         queued = 0
@@ -716,7 +771,12 @@ def main() -> None:
     window = webview.create_window("Telegram Tavern", _ui_path(), js_api=api, width=1180, height=780,
                                    min_size=(900, 600))
     api.window = window
-    if os.environ.get("TAVERN_AUTOSTART", "1") != "0":
+    # Bots no longer auto-start by default — the user usually runs just one and
+    # starts it from the 总览 page. settings.json {"autostart": true} re-enables
+    # the old behaviour; TAVERN_AUTOSTART=1/0 overrides either way (dev use).
+    env_auto = os.environ.get("TAVERN_AUTOSTART")
+    autostart = (env_auto != "0") if env_auto is not None else bool(api.settings().get("autostart", False))
+    if autostart:
         api.engine.start()
 
     def on_closing():

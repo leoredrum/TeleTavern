@@ -48,8 +48,11 @@ def hot_add_character(bot, card_file: str, data_dir: Path) -> bool:
 
 
 class Engine:
-    def __init__(self, data_dir: Path):
+    def __init__(self, data_dir: Path, only: set[str] | None = None):
         self.data_dir = ensure_data_dir(Path(data_dir))
+        # `only`: if given, start just these bot names (the user's enabled flags
+        # are left untouched) — lets the desktop app run a single bot on demand.
+        self.only: set[str] | None = set(only) if only else None
         self.running: dict[str, object] = {}     # name -> telegram Application
         self.bots: dict[str, object] = {}        # name -> DialogueBot / RPGBot
         self.status: dict[str, str] = {}
@@ -62,6 +65,9 @@ class Engine:
         for cfg, problems in self.plan():
             if not cfg.enabled:
                 self.status[cfg.name] = "disabled"
+                continue
+            if self.only is not None and cfg.name not in self.only:
+                self.status[cfg.name] = "idle"
                 continue
             if cfg.kind == "local":
                 self.status[cfg.name] = "local"

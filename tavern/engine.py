@@ -47,7 +47,11 @@ class CharacterRuntime:
             reserve_tokens=bot.max_tokens + 512,
         )
         self.client = OllamaClient(bot.ollama_url, bot.model, max_tokens=bot.max_tokens,
-                                   temperature=bot.temperature)
+                                   temperature=bot.temperature,
+                                   repeat_penalty=bot.repeat_penalty, repeat_last_n=bot.repeat_last_n,
+                                   presence_penalty=bot.presence_penalty,
+                                   frequency_penalty=bot.frequency_penalty,
+                                   top_k=bot.top_k, min_p=bot.min_p)
         log.info("[%s] loaded %s (%s) — worldinfo: %s", bot.name, self.card.name, card_file,
                  self.worldinfo.summary())
 

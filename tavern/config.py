@@ -87,8 +87,15 @@ class BotConfig:
     user_label: str = "你"
     max_context: int = 16384
     max_tokens: int = 1024
-    history_limit: int = 60
+    history_limit: int = 30                # was 60: a long verbatim history teaches the model its own loops
     temperature: float = 0.95
+    # anti-loop sampling (see ollama_client.py); per-bot overridable
+    repeat_penalty: float = 1.1
+    repeat_last_n: int = 512
+    presence_penalty: float = 0.4
+    frequency_penalty: float = 0.25
+    top_k: int = 40
+    min_p: float = 0.05
     newgame_prompt: str = ""               # rpg: user-side instruction that opens a new game
     continue_prompt: str = "（请继续推进剧情。）"
     first_mes_translate: bool = True       # rpg: run translation_table over the card greeting

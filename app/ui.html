@@ -70,6 +70,16 @@
   .sc .tags { display:flex; flex-wrap:wrap; gap:4px; margin-top:4px; } .sc .tags span { font-size:11px; padding:1px 6px; border-radius:999px; background:rgba(127,127,127,.15); }
   .sc .ex { font-size:12px; color:var(--muted); max-height:54px; overflow:hidden; margin-top:4px; }
   .badge { font-size:10px; padding:1px 5px; border-radius:4px; background:var(--bad); color:#fff; margin-left:4px; } .badge.own { background:var(--ok); }
+  /* 商店详情预览（App 内弹窗，不跳浏览器） */
+  .modal.sdetail { width:820px; max-height:88vh; display:flex; flex-direction:column; padding:0; overflow:hidden; }
+  .sdetail .sd-body { display:flex; gap:18px; padding:18px 20px; overflow:auto; min-height:0; }
+  .sdetail .sd-img { width:230px; flex:none; } .sdetail .sd-img img { width:230px; border-radius:10px; background:#8882; display:block; }
+  .sdetail .sd-main { flex:1; min-width:0; }
+  .sdetail .sd-title { font-size:18px; font-weight:700; margin-bottom:4px; }
+  .sdetail .sd-meta { font-size:12px; color:var(--muted); margin:4px 0 8px; line-height:1.6; }
+  .sdetail .sd-tags { display:flex; flex-wrap:wrap; gap:4px; margin:6px 0 10px; } .sdetail .sd-tags span { font-size:11px; padding:2px 8px; border-radius:999px; background:rgba(127,127,127,.15); }
+  .sdetail .sd-desc { white-space:pre-wrap; line-height:1.65; font-size:13.5px; }
+  .sdetail .sd-foot { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:12px 20px; border-top:1px solid var(--line); }
   .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.35); display:none; align-items:center; justify-content:center; z-index:50; }
   .modal-bg.show { display:flex; }
   .modal { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:18px 20px; width:460px; max-width:92vw; }
@@ -98,10 +108,14 @@
     <div class="card">
       <div class="row">
         <span id="eng-pill" class="pill">…</span>
-        <button class="btn primary" id="btn-start" onclick="engine('start')">启动全部 bot</button>
-        <button class="btn" id="btn-stop" onclick="engine('stop')">停止</button>
+        <button class="btn" id="btn-start" onclick="engine('start')">启动全部已启用 bot</button>
+        <button class="btn" id="btn-stop" onclick="engine('stop')">全部停止</button>
         <button class="btn" onclick="engine('restart')">重启（应用配置更改）</button>
         <span class="muted" id="ollama-brief"></span>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <label class="chk"><input type="checkbox" id="ov-autostart" onchange="api('set_setting','autostart',this.checked).then(()=>toast(this.checked?'下次打开 App 会自动启动所有已启用 bot':'下次打开 App 不自动启动，按需在下方单独启动'))"> 打开 App 时自动启动</label>
+        <span class="muted">平时只用一个的话，不勾选，在下方各 bot 卡片上单独「▶ 启动」即可。</span>
       </div>
       <div class="muted" id="last-error" style="margin-top:8px;color:var(--bad)"></div>
     </div>
@@ -208,6 +222,9 @@
   </section>
 </main>
 <div class="toast" id="toast"></div>
+<div class="modal-bg" id="sdetail-bg" onclick="if(event.target===this)storeDetailClose()">
+  <div class="modal sdetail" id="sdetail"></div>
+</div>
 <div class="modal-bg" id="deploy-bg" onclick="if(event.target===this)deployClose()">
   <div class="modal">
     <h3 style="margin:0 0 6px">一键部署角色卡</h3>
@@ -251,6 +268,7 @@ function showTab(id) {
 }
 
 async function engine(cmd) { await api(cmd); toast(cmd === 'stop' ? '已停止' : '引擎启动中…'); setTimeout(refresh, 800); }
+async function botRun(name, on) { const r = await api(on ? 'start_bot' : 'stop_bot', name); toast(r && r.ok ? (on ? `${name} 启动中…` : `${name} 已停止`) : ((r && r.error) || '操作失败')); setTimeout(refresh, 800); }
 
 async function refresh() {
   try { STATE = await api('state'); } catch (e) { return; }
@@ -270,8 +288,12 @@ async function refresh() {
       <div class="muted">${b.characters.length} 张卡 · ${b.worlds.length} 本世界书</div>
       <div class="muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(b.model)}</div>
       ${b.problems.length ? `<div style="color:var(--warn);font-size:12px;margin-top:6px">⚠ ${esc(b.problems.join('；'))}</div>` : ''}
-      <div class="row" style="margin-top:8px"><button class="btn" onclick="editBot('${esc(b.name)}')">编辑</button>
+      <div class="row" style="margin-top:8px">${b.kind !== 'local' && b.enabled ? (st.startsWith('running')
+          ? `<button class="btn" onclick="botRun('${esc(b.name)}',false)">■ 停止</button>`
+          : `<button class="btn primary" onclick="botRun('${esc(b.name)}',true)">▶ 启动</button>`) : ''}
+      <button class="btn" onclick="editBot('${esc(b.name)}')">编辑</button>
       <button class="btn" onclick="toggleBot('${esc(b.name)}')">${b.enabled ? '禁用' : '启用'}</button></div></div>`; }).join('') || '<div class="card muted">还没有 bot，去 Bots 页新建。</div>';
+  $('#ov-autostart').checked = !!STATE.autostart;
   if ($('#bots').classList.contains('active')) renderBotList();
   if ($('#models').classList.contains('active')) renderOllama();
 }
@@ -519,18 +541,48 @@ async function storeFetch() {
   storeRender();
 }
 function storeRender() {
-  $('#st-grid').innerHTML = ST.items.map(c => `<div class="card sc ${ST.sel.has(c.id) ? 'sel' : ''}" onclick="storeToggle(${c.id}, event)">
+  $('#st-grid').innerHTML = ST.items.map(c => `<div class="card sc ${ST.sel.has(c.id) ? 'sel' : ''}" onclick="storeToggle(${c.id}, event)" oncontextmenu="event.preventDefault();storeDetail(${c.id})" title="右键：查看详情">
     <input class="cb" type="checkbox" ${ST.sel.has(c.id) ? 'checked' : ''} onclick="event.stopPropagation();storeToggle(${c.id})">
     <img src="${esc(c.image)}" loading="lazy" alt="">
     <div style="min-width:0;flex:1"><div class="t" title="${esc(c.title_orig || c.title)}">${esc(c.title)}${c.nsfw ? '<span class="badge">NSFW</span>' : ''}${c.owned ? '<span class="badge own">已拥有</span>' : ''}</div>
       <div class="muted" style="font-size:12px">@${esc(c.author)} · ${c.downloads} 下载 · ${c.rating ? '★' + Number(c.rating).toFixed(1) : '未评分'} · ${c.tokens} tok · ${esc(c.language)}</div>
       <div class="tags">${c.tags.slice(0, 4).map(t => `<span>${esc(t)}</span>`).join('')}</div>
       <div class="ex">${esc(c.excerpt)}</div>
-      <div class="muted" style="font-size:11px;margin-top:4px"><a href="#" onclick="event.stopPropagation();api('open_url','${esc(c.url)}');return false;" style="color:var(--accent)">在网站查看 ↗</a></div>
+      <div class="muted" style="font-size:11px;margin-top:4px"><a href="#" onclick="event.stopPropagation();storeDetail(${c.id});return false;" style="color:var(--accent)">查看详情</a></div>
     </div></div>`).join('') || '<div class="card muted">没有结果。</div>';
   $('#st-dl').textContent = `下载选中 (${ST.sel.size})`; $('#st-dl').disabled = ST.sel.size === 0;
 }
 function storeToggle(id, ev) { if (ev && ev.target.tagName === 'A') return; ST.sel.has(id) ? ST.sel.delete(id) : ST.sel.add(id); storeRender(); }
+// ---- in-app detail preview (right-click a card / 「查看详情」) ----
+async function storeDetail(id) {
+  const box = $('#sdetail');
+  box.innerHTML = '<div class="sd-body"><div class="muted">加载中…</div></div>';
+  $('#sdetail-bg').classList.add('show');
+  const d = await api('store_detail', id);
+  if (!d.ok) { box.innerHTML = `<div class="sd-body"><div style="color:var(--bad)">❌ ${esc(d.error)}</div></div><div class="sd-foot"><span></span><button class="btn" onclick="storeDetailClose()">关闭</button></div>`; return; }
+  const meta = [`@${esc(d.author)}`, esc(d.language), `${d.downloads} 下载`, d.rating ? `★${Number(d.rating).toFixed(1)}（${d.ratings} 评）` : '未评分',
+                `${d.tokens} tok`, d.ai_score != null ? `AI 评分 ${d.ai_score}` : '', d.created ? `发布 ${esc(d.created)}` : '', d.updated && d.updated !== d.created ? `更新 ${esc(d.updated)}` : '',
+                d.comments ? `${d.comments} 评论` : '', d.has_lorebook ? '📚 附带世界书' : '', d.adventure ? '🎲 冒险模式' : ''].filter(Boolean).join(' · ');
+  box.innerHTML = `<div class="sd-body">
+      <div class="sd-img"><img src="${esc(d.image)}" alt=""></div>
+      <div class="sd-main">
+        <div class="sd-title">${esc(d.title)}${d.nsfw ? '<span class="badge">NSFW</span>' : ''}${d.owned ? '<span class="badge own">已拥有</span>' : ''}</div>
+        ${d.title_orig && d.title_orig !== d.title ? `<div class="muted" style="font-size:12px">${esc(d.title_orig)}</div>` : ''}
+        <div class="sd-meta">${meta}</div>
+        <div class="sd-tags">${(d.tags || []).map(t => `<span>${esc(t)}</span>`).join('')}</div>
+        <div class="sd-desc">${esc(d.description || d.excerpt_full || d.excerpt || '（无简介）')}</div>
+      </div></div>
+    <div class="sd-foot">
+      <span class="muted" style="font-size:12px">右键任意卡片可预览 · 不会跳转浏览器</span>
+      <span class="row">
+        <button class="btn" onclick="storeDetailClose()">关闭</button>
+        ${d.owned ? '' : `<button class="btn primary" onclick="storeDetailDownload(${d.id}, '${esc(d.title)}')">⬇ 下载到角色卡</button>`}
+      </span></div>`;
+}
+function storeDetailClose() { $('#sdetail-bg').classList.remove('show'); }
+async function storeDetailDownload(id, title) {
+  const r = await api('store_download', [{ id, title }]); toast(`已加入下载队列`); storeDetailClose(); storeProgress();
+}
 function storeToggleAll() { const on = $('#st-all').checked; ST.items.forEach(c => on ? ST.sel.add(c.id) : ST.sel.delete(c.id)); storeRender(); }
 async function storeDownloadSelected() {
   const items = ST.items.filter(c => ST.sel.has(c.id)).map(c => ({ id: c.id, title: c.title }));
